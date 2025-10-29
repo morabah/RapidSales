@@ -5,3 +5,8 @@ secondaryBackgroundColor="#1e293b"
 textColor="#f8fafc"
 font="sans serif"
 
+[theme.sidebar]
+widgetBackgroundColor="#1e293b"
+widgetBorderColor="#334155"
+skeletonBackgroundColor="#1e293b"
+

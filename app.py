@@ -4,6 +4,7 @@ import google.generativeai as genai
 import plotly.express as px
 import plotly.graph_objects as go
 import json
+import numpy as np
 from datetime import datetime
 
 # Page configuration
@@ -31,32 +32,29 @@ st.markdown("""
     .stApp {
         background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         color: #1e293b;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     
-    /* Ensure all text has proper contrast */
-    * {
-        color: inherit;
+    /* COMPREHENSIVE TEXT CONTRAST FIX - All elements */
+    body, html, .stApp {
+        color: #0f172a !important;
     }
     
-    /* Force dark text on light backgrounds */
-    .stApp, .stApp * {
-        color: #1e293b !important;
+    /* All text elements - dark color for readability */
+    h1, h2, h3, h4, h5, h6, p, span, div, label, li, td, th, a {
+        color: #0f172a !important;
     }
     
-    /* Override any light text that might be hard to read */
-    .stMarkdown, .stMarkdown * {
-        color: #1e293b !important;
-    }
-    
-    /* Ensure headings are dark and visible */
-    h1, h2, h3, h4, h5, h6 {
-        color: #1e293b !important;
-    }
-    
-    /* Ensure paragraphs and text are dark */
-    p, span, div {
-        color: #1e293b !important;
+    /* Streamlit specific elements */
+    .stMarkdown, .stMarkdown *, 
+    .stDataFrame, .stDataFrame *,
+    .stMetric, .stMetric *,
+    .stExpander, .stExpander *,
+    .stAlert, .stAlert *,
+    .stSelectbox, .stSelectbox *,
+    .stTextInput, .stTextInput *,
+    .stFileUploader, .stFileUploader * {
+        color: #0f172a !important;
     }
     
     /* Force all Streamlit text elements to be dark and visible */
@@ -177,25 +175,24 @@ st.markdown("""
     
     /* Professional Header Styling */
     .professional-header {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        background: white;
         border-bottom: 3px solid var(--topseven-blue);
-        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 15px rgba(30, 64, 175, 0.1);
         margin-bottom: 2rem;
+        padding: 1.25rem 1rem;
     }
     
     .header-container {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
-        padding: 0 2rem;
+        padding: 0 1rem;
     }
     
     .header-content {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto 1fr;
         align-items: center;
-        justify-content: space-between;
-        padding: 1.5rem 0;
-        flex-wrap: wrap;
-        gap: 1rem;
+        gap: 2rem;
     }
     
     .logo-section {
@@ -206,72 +203,86 @@ st.markdown("""
     
     .logo-icon {
         font-size: 2.5rem;
-        background: linear-gradient(135deg, var(--topseven-blue), var(--topseven-light-blue));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
     }
     
-    .logo-text {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-    
-    .main-title {
-        font-size: 2rem;
+    .logo-text h1 {
+        font-size: 1.875rem;
         font-weight: 700;
-        color: var(--topseven-dark);
-        margin: 0;
+        color: #0f172a !important;
+        margin: 0 0 0.25rem 0;
         line-height: 1.2;
     }
     
     .company-badge {
-        background: var(--topseven-orange);
-        color: white;
-        padding: 0.25rem 0.75rem;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: 600;
+        background: linear-gradient(135deg, var(--topseven-orange), #ea580c);
+        color: white !important;
+        padding: 0.3rem 0.85rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
         display: inline-block;
-        width: fit-content;
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
     }
     
     .header-info {
         text-align: right;
-        max-width: 400px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
     
     .tagline {
-        font-size: 1rem;
-        color: var(--topseven-gray);
-        margin: 0 0 0.5rem 0;
+        font-size: 0.95rem;
+        color: #475569 !important;
+        margin: 0;
         font-weight: 500;
         line-height: 1.4;
     }
     
     .subtitle {
-        font-size: 0.875rem;
-        color: var(--topseven-gray);
+        font-size: 0.85rem;
+        color: #64748b !important;
         margin: 0;
-        opacity: 0.8;
         line-height: 1.3;
     }
     
+    /* Mobile Responsive Header */
     @media (max-width: 768px) {
+        .professional-header {
+            padding: 1rem 0.5rem;
+        }
+        
         .header-content {
-            flex-direction: column;
+            grid-template-columns: 1fr;
+            gap: 1rem;
             text-align: center;
+        }
+        
+        .logo-section {
+            justify-content: center;
+        }
+        
+        .logo-icon {
+            font-size: 2rem;
+        }
+        
+        .logo-text h1 {
+            font-size: 1.5rem;
         }
         
         .header-info {
             text-align: center;
         }
         
-        .main-title {
-            font-size: 1.75rem;
+        .tagline {
+            font-size: 0.875rem;
+        }
+        
+        .subtitle {
+            font-size: 0.8rem;
         }
     }
     
@@ -279,18 +290,18 @@ st.markdown("""
     .insight-card {
         background: white;
         border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 24px;
+        border-radius: 12px;
+        padding: 1.5rem;
         transition: all 0.3s ease;
         cursor: pointer;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 1.25rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
     
     .insight-card:hover {
         transform: translateY(-4px);
         border-color: var(--topseven-light-blue);
-        box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+        box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
     }
     
     .insight-icon {
@@ -300,46 +311,87 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 16px;
+        margin-bottom: 1rem;
         font-size: 24px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
     .insight-title {
-        font-size: 1.25rem;
-        font-weight: 600;
-        margin-bottom: 8px;
-        color: var(--topseven-dark);
+        font-size: 1.125rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        color: #0f172a !important;
+        line-height: 1.3;
     }
     
     .insight-desc {
-        color: var(--topseven-gray);
+        color: #64748b !important;
         font-size: 0.875rem;
         line-height: 1.5;
     }
     
+    /* Mobile Responsive Cards */
+    @media (max-width: 768px) {
+        .insight-card {
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        
+        .insight-icon {
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+        }
+        
+        .insight-title {
+            font-size: 1rem;
+        }
+        
+        .insight-desc {
+            font-size: 0.8rem;
+        }
+    }
+    
     /* Chat messages with TopSeven styling */
     .chat-message {
-        padding: 16px 20px;
+        padding: 1rem 1.25rem;
         border-radius: 12px;
-        margin-bottom: 12px;
-        max-width: 80%;
+        margin-bottom: 1rem;
+        max-width: 85%;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        word-wrap: break-word;
     }
     
     .user-message {
         background: linear-gradient(135deg, var(--topseven-blue) 0%, var(--topseven-light-blue) 100%);
         margin-left: auto;
-        color: white;
-        border-radius: 20px 20px 4px 20px;
+        color: white !important;
+        border-radius: 18px 18px 4px 18px;
+    }
+    
+    .user-message * {
+        color: white !important;
     }
     
     .ai-message {
         background: white;
         margin-right: auto;
-        color: var(--topseven-dark);
+        color: #0f172a !important;
         border: 1px solid #e2e8f0;
-        border-radius: 20px 20px 20px 4px;
+        border-radius: 18px 18px 18px 4px;
+    }
+    
+    .ai-message * {
+        color: #0f172a !important;
+    }
+    
+    /* Mobile Responsive Chat */
+    @media (max-width: 768px) {
+        .chat-message {
+            max-width: 95%;
+            padding: 0.875rem 1rem;
+            font-size: 0.9rem;
+        }
     }
     
     /* Tab styling with TopSeven theme - Fixed text visibility */
@@ -430,115 +482,383 @@ st.markdown("""
         background: var(--topseven-light-gray);
     }
     
-    /* Buttons with TopSeven styling */
+    /* File uploader styling */
+    .stFileUploader {
+        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 2px solid #3b82f6;
+    }
+    
+    .stFileUploader > div {
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    .stFileUploader label {
+        color: #1e40af !important;
+        font-weight: 600 !important;
+    }
+    
+    .stFileUploader button {
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 2rem !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        box-shadow: 0 6px 20px rgba(0, 210, 255, 0.4) !important;
+        cursor: pointer !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    .stFileUploader button::before {
+        content: '' !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: -100% !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent) !important;
+        transition: left 0.5s !important;
+    }
+    
+    .stFileUploader button:hover::before {
+        left: 100% !important;
+    }
+    
+    .stFileUploader button:hover {
+        background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(0, 210, 255, 0.6) !important;
+    }
+    
+    .stFileUploader button:active {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(0, 210, 255, 0.7) !important;
+    }
+    
+    /* Chat input styling */
+    .stChatInput {
+        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%) !important;
+        border: 2px solid #3b82f6 !important;
+        border-radius: 12px !important;
+        padding: 1rem !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1) !important;
+    }
+    
+    .stChatInput > div {
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    .stChatInput input {
+        background: white !important;
+        border: 2px solid #3b82f6 !important;
+        border-radius: 8px !important;
+        color: #1e293b !important;
+        font-size: 1rem !important;
+        padding: 0.75rem 1rem !important;
+        font-weight: 500 !important;
+    }
+    
+    .stChatInput input:focus {
+        border-color: #1e40af !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
+        outline: none !important;
+        background: white !important;
+        color: #1e293b !important;
+    }
+    
+    .stChatInput input::placeholder {
+        color: #64748b !important;
+        font-weight: 400 !important;
+    }
+    
+    /* Force text visibility in all input states */
+    .stChatInput input[type="text"] {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    .stChatInput textarea {
+        color: #1e293b !important;
+        background: white !important;
+        border: 2px solid #3b82f6 !important;
+    }
+    
+    .stChatInput textarea:focus {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    .stChatInput button {
+        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%) !important;
+        color: #333 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 2rem !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        margin-left: 0.5rem !important;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        box-shadow: 0 6px 20px rgba(255, 154, 158, 0.4) !important;
+        cursor: pointer !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    .stChatInput button::before {
+        content: '' !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: -100% !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent) !important;
+        transition: left 0.5s !important;
+    }
+    
+    .stChatInput button:hover::before {
+        left: 100% !important;
+    }
+    
+    .stChatInput button:hover {
+        background: linear-gradient(135deg, #fecfef 0%, #ff9a9e 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(255, 154, 158, 0.6) !important;
+    }
+    
+    .stChatInput button:active {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(255, 154, 158, 0.7) !important;
+    }
+    
+    /* ENHANCED BUTTON STYLING SYSTEM */
+    
+    /* Primary Buttons - Main actions with modern styling */
     .stButton > button {
-        background: linear-gradient(135deg, var(--topseven-blue) 0%, var(--topseven-light-blue) 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 2rem !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4) !important;
+        cursor: pointer !important;
+        position: relative !important;
+        overflow: hidden !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    
+    .stButton > button::before {
+        content: '' !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: -100% !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent) !important;
+        transition: left 0.5s !important;
+    }
+    
+    .stButton > button:hover::before {
+        left: 100% !important;
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(102, 126, 234, 0.6) !important;
+    }
+    
+    .stButton > button:active {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.7) !important;
+    }
+    
+    /* Full-width buttons for quick questions */
+    .stButton > button[data-testid*="btn1"],
+    .stButton > button[data-testid*="btn2"],
+    .stButton > button[data-testid*="btn3"] {
+        width: 100% !important;
+        margin: 0.5rem 0 !important;
+        font-size: 0.95rem !important;
+        padding: 1rem 1.5rem !important;
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%) !important;
+        box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4) !important;
+    }
+    
+    .stButton > button[data-testid*="btn1"]:hover,
+    .stButton > button[data-testid*="btn2"]:hover,
+    .stButton > button[data-testid*="btn3"]:hover {
+        background: linear-gradient(135deg, #ee5a24 0%, #ff6b6b 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(255, 107, 107, 0.6) !important;
+    }
+    
+    /* Clear/Delete buttons - Enhanced red styling */
+    .stButton > button:contains("Clear"),
+    .stButton > button:contains("Delete"),
+    .stButton > button:contains("Remove") {
+        background: linear-gradient(135deg, #ff4757 0%, #c44569 100%) !important;
+        color: white !important;
+        box-shadow: 0 6px 20px rgba(255, 71, 87, 0.4) !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 2rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    
+    .stButton > button:contains("Clear"):hover,
+    .stButton > button:contains("Delete"):hover,
+    .stButton > button:contains("Remove"):hover {
+        background: linear-gradient(135deg, #c44569 0%, #ff4757 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(255, 71, 87, 0.6) !important;
+    }
+    
+    /* Close buttons - Enhanced gray styling */
+    .stButton > button:contains("Close") {
+        background: linear-gradient(135deg, #a4b0be 0%, #747d8c 100%) !important;
+        color: white !important;
+        box-shadow: 0 6px 20px rgba(164, 176, 190, 0.4) !important;
+        font-size: 0.9rem !important;
+        padding: 0.6rem 1.5rem !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    
+    .stButton > button:contains("Close"):hover {
+        background: linear-gradient(135deg, #747d8c 0%, #a4b0be 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(164, 176, 190, 0.6) !important;
+    }
+    
+    /* Spinner styling */
+    .stSpinner {
+        color: #3b82f6 !important;
+    }
+    
+    .stSpinner > div {
+        border-color: #3b82f6 transparent #3b82f6 transparent !important;
     }
     
     /* Metrics cards styling */
     .metric-card {
         background: white;
         border-radius: 12px;
-        padding: 24px;
+        padding: 1.5rem;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         border-left: 4px solid var(--topseven-light-blue);
+        margin-bottom: 1rem;
+    }
+    
+    .metric-card h3 {
+        margin: 0 0 0.5rem 0;
+        font-weight: 700;
+    }
+    
+    .metric-card p {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+    
+    /* Mobile Responsive Buttons and Metrics */
+    @media (max-width: 768px) {
+        .stButton > button {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .metric-card {
+            padding: 1.25rem;
+        }
+        
+        .metric-card h3 {
+            font-size: 1.25rem;
+        }
+        
+        .metric-card p {
+            font-size: 0.8rem;
+        }
     }
     
     /* Professional Footer Styling */
     .professional-footer {
-        background: linear-gradient(135deg, var(--topseven-dark) 0%, #1e293b 100%);
-        color: white;
-        margin-top: 3rem;
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        color: #cbd5e1 !important;
+        margin-top: 4rem;
         border-top: 3px solid var(--topseven-blue);
+        padding: 2rem 1rem 1rem 1rem;
     }
     
     .footer-container {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
-        padding: 0 2rem;
     }
     
     .footer-content {
         display: grid;
-        grid-template-columns: 1fr 2fr;
-        gap: 3rem;
-        padding: 3rem 0 2rem 0;
-        align-items: start;
-    }
-    
-    .footer-brand {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
-    
-    .footer-logo {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-    }
-    
-    .footer-icon {
-        font-size: 2rem;
-        background: linear-gradient(135deg, var(--topseven-light-blue), var(--topseven-orange));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    
-    .footer-brand-text h3 {
-        margin: 0;
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: white;
-    }
-    
-    .footer-badge {
-        background: var(--topseven-orange);
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 8px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        display: inline-block;
-        margin-top: 0.25rem;
-    }
-    
-    .footer-description {
-        color: #94a3b8;
-        font-size: 0.9rem;
-        line-height: 1.5;
-        margin: 0;
-    }
-    
-    .footer-links {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 2rem;
+        padding-bottom: 2rem;
+        border-bottom: 1px solid #334155;
     }
     
     .footer-section h4 {
-        color: white;
+        color: white !important;
         font-size: 1rem;
-        font-weight: 600;
+        font-weight: 700;
         margin: 0 0 1rem 0;
         border-bottom: 2px solid var(--topseven-orange);
         padding-bottom: 0.5rem;
+        width: fit-content;
+    }
+    
+    .footer-section p, .footer-section li {
+        color: #cbd5e1 !important;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        margin-bottom: 0.5rem;
+    }
+    
+    .footer-section a {
+        color: #94a3b8 !important;
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+    
+    .footer-section a:hover {
+        color: var(--topseven-orange) !important;
+    }
+    
+    .footer-badge {
+        background: linear-gradient(135deg, var(--topseven-orange), #ea580c);
+        color: white !important;
+        padding: 0.3rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
         display: inline-block;
+        margin-bottom: 0.75rem;
     }
     
     .contact-item {
@@ -546,72 +866,44 @@ st.markdown("""
         align-items: center;
         gap: 0.5rem;
         margin-bottom: 0.5rem;
-        color: #cbd5e1;
-        font-size: 0.9rem;
+        color: #cbd5e1 !important;
+        font-size: 0.875rem;
     }
     
     .contact-icon {
+        color: var(--topseven-orange) !important;
         font-size: 1rem;
         width: 20px;
-        text-align: center;
-    }
-    
-    .footer-section p {
-        color: #cbd5e1;
-        font-size: 0.9rem;
-        line-height: 1.5;
-        margin: 0;
-    }
-    
-    .footer-section ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-    
-    .footer-section li {
-        color: #cbd5e1;
-        font-size: 0.9rem;
-        margin-bottom: 0.5rem;
-        padding-left: 1rem;
-        position: relative;
-    }
-    
-    .footer-section li:before {
-        content: "•";
-        color: var(--topseven-orange);
-        position: absolute;
-        left: 0;
     }
     
     .footer-bottom {
-        border-top: 1px solid #334155;
-        padding: 1.5rem 0;
-    }
-    
-    .footer-copyright {
+        padding: 1.5rem 0 0.5rem 0;
         text-align: center;
     }
     
     .footer-copyright p {
-        color: #64748b;
+        color: #64748b !important;
         font-size: 0.8rem;
         margin: 0;
     }
     
+    /* Mobile Responsive Footer */
     @media (max-width: 768px) {
-        .footer-content {
-            grid-template-columns: 1fr;
-            gap: 2rem;
+        .professional-footer {
+            padding: 1.5rem 0.5rem;
         }
         
-        .footer-links {
+        .footer-content {
             grid-template-columns: 1fr;
             gap: 1.5rem;
         }
         
-        .footer-container {
-            padding: 0 1rem;
+        .footer-section {
+            text-align: center;
+        }
+        
+        .footer-section h4 {
+            margin: 0 auto 1rem auto;
         }
     }
     
@@ -627,60 +919,6 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
     
-    /* Animated Arrow for Chat Tab */
-    .animated-arrow-container {
-        position: relative;
-        margin: 1rem 0;
-        padding: 1rem;
-        background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
-        border-radius: 12px;
-        border: 2px solid var(--topseven-light-blue);
-        text-align: center;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-    }
-    
-    .animated-arrow {
-        font-size: 2.5rem;
-        color: var(--topseven-blue);
-        animation: bounceArrow 1.5s infinite;
-        line-height: 1;
-        margin-bottom: 0.5rem;
-        display: inline-block;
-    }
-    
-    @keyframes bounceArrow {
-        0%, 100% {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        50% {
-            transform: translateY(-15px);
-            opacity: 0.7;
-        }
-    }
-    
-    .arrow-text {
-        color: var(--topseven-blue);
-        font-weight: 600;
-        font-size: 1rem;
-        margin: 0;
-        animation: pulse 2s infinite;
-        display: block;
-    }
-    
-    @keyframes pulse {
-        0%, 100% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.7;
-        }
-    }
-    
-    /* Hide arrow when on Chat tab */
-    .hidden {
-        display: none;
-    }
     
     /* COMPREHENSIVE TEXT VISIBILITY FIX */
     /* Force main content text to be dark and visible */
@@ -798,6 +1036,362 @@ st.markdown("""
     /* Force all spans to be dark */
     span {
         color: #1e293b !important;
+    }
+    
+    /* COMPREHENSIVE INPUT TEXT VISIBILITY FIX */
+    /* Force ALL input elements to have dark text on light background */
+    input, textarea, select {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    input:focus, textarea:focus, select:focus {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    input::placeholder, textarea::placeholder {
+        color: #64748b !important;
+    }
+    
+    /* Specific Streamlit input overrides */
+    .stTextInput input, .stTextArea textarea, .stSelectbox select {
+        color: #1e293b !important;
+        background: white !important;
+        border: 2px solid #3b82f6 !important;
+    }
+    
+    .stTextInput input:focus, .stTextArea textarea:focus, .stSelectbox select:focus {
+        color: #1e293b !important;
+        background: white !important;
+        border-color: #1e40af !important;
+    }
+    
+    /* Chat input specific overrides */
+    .stChatInput input, .stChatInput textarea {
+        color: #1e293b !important;
+        background: white !important;
+        border: 2px solid #3b82f6 !important;
+        font-weight: 500 !important;
+    }
+    
+    .stChatInput input:focus, .stChatInput textarea:focus {
+        color: #1e293b !important;
+        background: white !important;
+        border-color: #1e40af !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
+    }
+    
+    /* Override any dark theme that might be applied */
+    .stApp input, .stApp textarea, .stApp select {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    .stApp input:focus, .stApp textarea:focus, .stApp select:focus {
+        color: #1e293b !important;
+        background: white !important;
+    }
+    
+    /* DETAILED ANALYSIS TAB ENHANCEMENTS */
+    
+    /* Enhanced data table styling */
+    .stDataFrame {
+        background: white !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+        overflow: hidden !important;
+    }
+    
+    .stDataFrame table {
+        background: white !important;
+        color: #1e293b !important;
+        border-collapse: collapse !important;
+        width: 100% !important;
+    }
+    
+    .stDataFrame th {
+        background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%) !important;
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 0.9rem !important;
+        padding: 1rem 0.75rem !important;
+        text-align: left !important;
+        border: none !important;
+    }
+    
+    .stDataFrame td {
+        color: #1e293b !important;
+        background: white !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        padding: 0.75rem !important;
+        font-size: 0.9rem !important;
+    }
+    
+    .stDataFrame tr:nth-child(even) {
+        background: #f8fafc !important;
+    }
+    
+    .stDataFrame tr:hover {
+        background: #f1f5f9 !important;
+    }
+    
+    /* Enhanced section headers */
+    .stMarkdown h3 {
+        color: #1e293b !important;
+        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%) !important;
+        padding: 1rem 1.5rem !important;
+        border-radius: 12px !important;
+        border-left: 4px solid #3b82f6 !important;
+        margin: 1.5rem 0 1rem 0 !important;
+        font-size: 1.25rem !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    /* Enhanced metric cards */
+    .metric-card {
+        background: white !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+        border: 1px solid #e2e8f0 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    .metric-card h3 {
+        color: #1e293b !important;
+        font-size: 1.75rem !important;
+        font-weight: 700 !important;
+        margin: 0 0 0.5rem 0 !important;
+    }
+    
+    .metric-card p {
+        color: #64748b !important;
+        font-size: 0.9rem !important;
+        font-weight: 500 !important;
+        margin: 0 !important;
+    }
+    
+    /* Fix expander styling */
+    .streamlit-expander {
+        background: white !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+    }
+    
+    .streamlit-expander .streamlit-expanderHeader {
+        background: #f8fafc !important;
+        color: #1e293b !important;
+        font-weight: 600 !important;
+    }
+    
+    .streamlit-expander .streamlit-expanderContent {
+        background: white !important;
+        color: #1e293b !important;
+    }
+    
+    /* Enhanced download button styling */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.8rem 2rem !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4) !important;
+        cursor: pointer !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    .stDownloadButton > button::before {
+        content: '' !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: -100% !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent) !important;
+        transition: left 0.5s !important;
+    }
+    
+    .stDownloadButton > button:hover::before {
+        left: 100% !important;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%) !important;
+        transform: translateY(-4px) scale(1.05) !important;
+        box-shadow: 0 12px 35px rgba(46, 204, 113, 0.6) !important;
+    }
+    
+    .stDownloadButton > button:active {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(46, 204, 113, 0.7) !important;
+    }
+    
+    /* Fix info boxes */
+    .stAlert {
+        background: #f0f9ff !important;
+        border: 1px solid #0ea5e9 !important;
+        border-radius: 8px !important;
+        color: #1e293b !important;
+    }
+    
+    .stAlert .stMarkdown {
+        color: #1e293b !important;
+    }
+    
+    /* Fix warning boxes */
+    .stWarning {
+        background: #fef3c7 !important;
+        border: 1px solid #f59e0b !important;
+        border-radius: 8px !important;
+        color: #1e293b !important;
+    }
+    
+    .stWarning .stMarkdown {
+        color: #1e293b !important;
+    }
+    
+    /* Enhanced performance metrics */
+    .stMetric {
+        background: white !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+        border: 1px solid #e2e8f0 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stMetric:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    .stMetric > div {
+        color: #1e293b !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] {
+        background: white !important;
+        color: #1e293b !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] > div {
+        color: #1e293b !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] label {
+        color: #64748b !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] [data-testid="metric-value"] {
+        color: #1e293b !important;
+        font-weight: 700 !important;
+        font-size: 1.5rem !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] [data-testid="metric-delta"] {
+        color: #059669 !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Enhanced plotly charts container */
+    .stPlotlyChart {
+        background: white !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+        padding: 1rem !important;
+        margin: 1rem 0 !important;
+    }
+    
+    /* Enhanced main content area */
+    .main .block-container {
+        background: #f8fafc !important;
+        padding: 2rem !important;
+    }
+    
+    /* Enhanced tab content */
+    .stTabs [data-baseweb="tab-panel"] {
+        background: #f8fafc !important;
+        padding: 1.5rem !important;
+        border-radius: 12px !important;
+    }
+    
+    /* Better spacing for detailed analysis */
+    .stTabs [data-baseweb="tab-panel"] > div {
+        background: transparent !important;
+    }
+    
+    /* Global Mobile Responsiveness */
+    @media (max-width: 768px) {
+        /* Main app padding */
+        .stApp {
+            padding: 0.5rem;
+        }
+        
+        /* Reduce heading sizes */
+        h1 {
+            font-size: 1.75rem !important;
+        }
+        
+        h2 {
+            font-size: 1.5rem !important;
+        }
+        
+        h3 {
+            font-size: 1.25rem !important;
+        }
+        
+        /* Tab adjustments */
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.85rem;
+            padding: 0.5rem 0.75rem;
+        }
+        
+        /* Expander adjustments */
+        .stExpander {
+            font-size: 0.9rem;
+        }
+        
+        /* DataFrame adjustments */
+        .stDataFrame {
+            font-size: 0.85rem;
+        }
+        
+        /* File uploader */
+        .stFileUploader {
+            font-size: 0.9rem;
+        }
+        
+        /* Chat input */
+        .stChatInput {
+            font-size: 0.9rem;
+        }
+    }
+    
+    /* Tablet Responsiveness */
+    @media (min-width: 769px) and (max-width: 1024px) {
+        .header-content {
+            gap: 1.5rem;
+        }
+        
+        .footer-content {
+            grid-template-columns: repeat(2, 1fr);
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1015,31 +1609,51 @@ def query_ai(question, data_summary, df=None, insights=None):
                     safe_summary[key] = value
             json_data = json.dumps(safe_summary, indent=2, default=str)
         
-        prompt = f"""You are an expert sales data analyst assistant for Rapid Sales application.
+        prompt = f"""You are a professional business intelligence analyst for Rapid Sales, a TopSeven enterprise solution.
 
-DATA SUMMARY:
+KNOWLEDGE BASE (RAG - Retrieval Augmented Generation):
+The uploaded Excel file serves as your complete knowledge base. All analysis must be grounded in this data.
+
+SALES DATA CONTEXT:
 {json_data}
 
-USER QUESTION: {question}
+BUSINESS QUERY: {question}
 
-INSTRUCTIONS:
-1. Analyze the provided sales data to answer the question accurately
-2. Provide specific numbers, names, and metrics from the data
-3. If calculating something, briefly explain your reasoning
-4. Format your answer clearly with bullet points when listing items
-5. If the question asks for "best", "top", or "worst", provide rankings with actual values
-6. For performance questions, provide actionable insights
-7. Be concise but informative
-8. Use professional but conversational tone
-9. IMPORTANT: When providing lists, rankings, or comparisons, format them as markdown tables for better readability
-10. Use markdown table format: | Column1 | Column2 | Column3 | with proper alignment
+PROFESSIONAL RESPONSE GUIDELINES:
+1. **Tone**: Formal business communication - precise, clear, executive-ready
+2. **Data Grounding**: Base all insights strictly on the provided Excel data (RAG approach)
+3. **Format**: Use professional markdown tables for all data presentations
+4. **Structure**: 
+   - Executive Summary (2-3 sentences)
+   - Data Analysis (markdown table format)
+   - Key Insights (bullet points)
+   - Recommended Actions (numbered list)
 
-RESPONSE FORMAT:
-- Start with a brief text summary
-- Include relevant markdown tables for data presentation
-- End with actionable insights or recommendations
+5. **Table Format**: 
+   | Metric | Value | Performance |
+   |--------|-------|-------------|
+   Use proper alignment and clear headers
 
-Answer:"""
+6. **Precision**: Include specific numbers, percentages, and trends
+7. **Clarity**: Avoid jargon; use clear business terminology
+8. **Actionability**: Every insight must have a recommended action
+
+RESPONSE STRUCTURE:
+## Executive Summary
+[Brief 2-3 sentence overview]
+
+## Analysis
+[Markdown table with relevant data]
+
+## Key Insights
+- [Insight 1]
+- [Insight 2]
+
+## Recommended Actions
+1. [Action 1]
+2. [Action 2]
+
+Generate response:"""
         
         response = model.generate_content(prompt)
         return response.text
@@ -1054,52 +1668,28 @@ Answer:"""
 
 # Professional TopSeven Header
 st.markdown("""
-<div style="background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); padding: 2rem 1rem; border-bottom: 3px solid #1e40af; margin-bottom: 2rem;">
-    <div style="max-width: 1200px; margin: 0 auto;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem;">
-            <div>
-                <h1 style="color: #1e293b; font-size: 2.25rem; font-weight: 700; margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.75rem;">
-                    <span>🚀</span>
-                    <span>Rapid Sales</span>
-                </h1>
-                <div style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; display: inline-block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                    Powered by TopSeven
+<div class="professional-header">
+    <div class="header-container">
+        <div class="header-content">
+            <div class="logo-section">
+                <div class="logo-icon">🚀</div>
+                <div class="logo-text">
+                    <h1>Rapid Sales</h1>
+                    <span class="company-badge">POWERED BY TOPSEVEN</span>
                 </div>
             </div>
-            <div style="text-align: right; max-width: 500px;">
-                <p style="color: #475569; font-size: 1rem; font-weight: 500; margin: 0 0 0.5rem 0; line-height: 1.5;">
-                    High-quality software systems for ERP markets in the Middle East
-                </p>
-                <p style="color: #64748b; font-size: 0.875rem; margin: 0; line-height: 1.4;">
-                    AI-powered sales data analysis and business insights
-                </p>
+            <div class="header-info">
+                <p class="tagline">Enterprise Sales Intelligence Platform</p>
+                <p class="subtitle">AI-Powered Business Analytics & Data Insights</p>
             </div>
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Small animated arrow above tabs (only show when data is uploaded)
-if st.session_state.data is not None:
-    st.markdown("""
-    <div style="text-align: center; margin: 0.5rem 0; padding: 0.5rem;">
-        <div style="font-size: 1.5rem; color: #1e40af; animation: bounce 1.5s infinite; display: inline-block;">⬇️</div>
-        <div style="color: #1e40af; font-weight: 600; font-size: 0.8rem; margin-top: 0.25rem; animation: pulse 2s infinite;">Click Chat with AI</div>
-    </div>
-    <style>
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-    </style>
-    """, unsafe_allow_html=True)
 
 # Tabs - All 4 tabs should be visible
-tab1, tab2, tab3, tab4 = st.tabs(["📤 Upload Data", "💬 Chat with AI", "🤖 AI Insights", "📊 Detailed Analysis"])
+tab1, tab2, tab3, tab4 = st.tabs(["📤 Upload Data", "💬 Chat with AI", "📊 Detailed Analysis", "🤖 AI Insights"])
 
 # Debug: Show tab count
 st.sidebar.write(f"Total tabs: 4")
@@ -1117,19 +1707,21 @@ with tab1:
     </div>
     """, unsafe_allow_html=True)
     
-    # Upload container with better styling
+    # Upload container with TopSeven branding
     upload_container = st.container()
     with upload_container:
         st.markdown("""
-        <div style="background: #f8fafc; padding: 1.5rem; border-radius: 8px; border: 2px dashed #cbd5e1; margin-bottom: 1.5rem;">
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 2rem; border-radius: 12px; border: 2px dashed #3b82f6; margin-bottom: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);">
+            <div style="color: #1e40af; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">📁 Ready to Upload</div>
+            <div style="color: #64748b; font-size: 0.9rem;">Drag and drop your Excel file here or click browse</div>
         </div>
         """, unsafe_allow_html=True)
         
         uploaded_file = st.file_uploader(
-            "📁 Choose an Excel file to upload",
+            "Choose an Excel file to upload",
             type=['xlsx', 'xls'],
             help="Supported formats: .xlsx, .xls | Maximum file size: 200MB",
-            label_visibility="visible"
+            label_visibility="collapsed"
         )
     
     if uploaded_file is not None:
@@ -1240,28 +1832,34 @@ with tab2:
             else:
                 # Handle both old format (string) and new format (dict with text and table)
                 if isinstance(content, dict):
-                    # New format with text and table
-                    st.markdown(f'<div class="chat-message ai-message">🤖 <strong>AI:</strong><br>{content["text"]}</div>', unsafe_allow_html=True)
-                    
+                    # Label bubble for AI
+                    st.markdown('<div class="chat-message ai-message">🤖 <strong>AI</strong></div>', unsafe_allow_html=True)
+                    # Render markdown content so tables render correctly
+                    st.markdown(content["text"])
                     # Display table if available
                     if content.get("table"):
                         table_df = pd.DataFrame(content["table"])
                         st.dataframe(table_df, use_container_width=True, hide_index=True)
                 else:
                     # Old format (just text)
-                    st.markdown(f'<div class="chat-message ai-message">🤖 <strong>AI:</strong><br>{content}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="chat-message ai-message">🤖 <strong>AI</strong></div>', unsafe_allow_html=True)
+                    st.markdown(content)
         
-        # Quick question buttons
+        # Quick question buttons with better styling
         st.markdown("### Quick Questions")
         qcol1, qcol2, qcol3 = st.columns(3)
         
         with qcol1:
-            if st.button("🏆 Who is the best salesman?"):
+            if st.button("🏆 Who is the best salesman?", key="btn1"):
                 query = "Who is the best salesman based on total sales? Provide specific numbers."
                 st.session_state.chat_history.append({"role": "user", "content": query})
-                data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
-                response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
-                data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
+                # Show thinking indicator
+                with st.spinner("🤔 AI is analyzing your data..."):
+                    data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
+                    response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
+                    data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
                 response_data = {
                     "text": response,
                     "table": data_table.to_dict('records') if data_table is not None else None
@@ -1270,12 +1868,16 @@ with tab2:
                 st.rerun()
         
         with qcol2:
-            if st.button("📉 Show declining customers"):
+            if st.button("📉 Show declining customers", key="btn2"):
                 query = "Which customers show declining sales patterns? Identify at-risk customers."
                 st.session_state.chat_history.append({"role": "user", "content": query})
-                data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
-                response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
-                data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
+                # Show thinking indicator
+                with st.spinner("🤔 AI is analyzing your data..."):
+                    data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
+                    response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
+                    data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
                 response_data = {
                     "text": response,
                     "table": data_table.to_dict('records') if data_table is not None else None
@@ -1284,12 +1886,16 @@ with tab2:
                 st.rerun()
         
         with qcol3:
-            if st.button("🎯 Salesmen needing coaching"):
+            if st.button("🎯 Salesmen needing coaching", key="btn3"):
                 query = "Which salesmen need coaching based on their performance? Provide recommendations."
                 st.session_state.chat_history.append({"role": "user", "content": query})
-                data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
-                response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
-                data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
+                # Show thinking indicator
+                with st.spinner("🤔 AI is analyzing your data..."):
+                    data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
+                    response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
+                    data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
+                
                 response_data = {
                     "text": response,
                     "table": data_table.to_dict('records') if data_table is not None else None
@@ -1297,19 +1903,29 @@ with tab2:
                 st.session_state.chat_history.append({"role": "assistant", "content": response_data})
                 st.rerun()
         
+        # Styled chat input container
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border: 2px solid #3b82f6; margin: 1rem 0; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);">
+            <div style="color: #1e40af; font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">💬 Ask Your Question</div>
+            <div style="color: #64748b; font-size: 0.9rem;">Type your question about the sales data below</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         # Chat input
-        user_input = st.chat_input("Ask a question about your sales data...")
+        user_input = st.chat_input("Ask a question about your sales data...", key="main_chat")
         
         if user_input:
             # Add user message
             st.session_state.chat_history.append({"role": "user", "content": user_input})
             
-            # Get AI response
-            data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
-            response = query_ai(user_input, data_summary, st.session_state.data, st.session_state.insights)
-            
-            # Create data table if relevant
-            data_table = create_data_table(st.session_state.data, user_input, st.session_state.insights)
+            # Show thinking indicator
+            with st.spinner("🤔 AI is thinking..."):
+                # Get AI response
+                data_summary = prepare_data_summary(st.session_state.data, st.session_state.insights)
+                response = query_ai(user_input, data_summary, st.session_state.data, st.session_state.insights)
+                
+                # Create data table if relevant
+                data_table = create_data_table(st.session_state.data, user_input, st.session_state.insights)
             
             # Store response with table info
             response_data = {
@@ -1327,137 +1943,22 @@ with tab2:
                 st.session_state.chat_history = []
                 st.rerun()
 
-# Tab 3: AI Insights
+# Tab 3: Detailed Analysis
 with tab3:
-    if st.session_state.data is None:
-        st.warning("👆 Please upload your data in the 'Upload Data' tab first")
-    else:
-        insights = st.session_state.insights
-        
-        # TopSeven AI Insight cards
-        st.markdown("### 🧠 AI-Powered Business Solutions")
-        st.markdown("Click on any insight to explore detailed analysis")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        insight_cards = [
-            {
-                'id': 'demand-forecast',
-                'title': 'Demand Forecasting',
-                'icon': '📈',
-                'color': 'linear-gradient(135deg, var(--topseven-blue), var(--topseven-light-blue))',
-                'description': 'AI predicts what each customer will order next',
-                'details': f"Based on {insights.get('total_records', 0)} transactions, AI can predict inventory needs with {insights.get('forecast_accuracy', 85)}% accuracy, reducing stock-outs by 40%."
-            },
-            {
-                'id': 'route-optimization',
-                'title': 'Smart Route Planning',
-                'icon': '📍',
-                'color': 'linear-gradient(135deg, #10b981, #059669)',
-                'description': 'Optimizes daily routes saving 2-3 hours per salesman',
-                'details': 'AI considers traffic, visit duration, and customer priority to create optimal routes. Expected time savings: 25-30% per day.'
-            },
-            {
-                'id': 'price-optimization',
-                'title': 'Dynamic Pricing',
-                'icon': '💰',
-                'color': 'linear-gradient(135deg, var(--topseven-orange), #d97706)',
-                'description': 'Suggests optimal prices and discounts per customer',
-                'details': 'AI analyzes customer price sensitivity and competitor data to maximize both revenue and customer satisfaction.'
-            },
-            {
-                'id': 'churn-prediction',
-                'title': 'Churn Risk Detection',
-                'icon': '⚠️',
-                'color': 'linear-gradient(135deg, #ef4444, #dc2626)',
-                'description': 'Identifies customers likely to stop ordering',
-                'details': f"{len(insights.get('churn_risk', []))} customers identified as high churn risk. AI recommends immediate outreach." if insights.get('churn_risk') else 'AI monitors ordering patterns to flag at-risk customers before they churn.'
-            },
-            {
-                'id': 'sales-target',
-                'title': 'Intelligent Target Setting',
-                'icon': '🎯',
-                'color': 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                'description': 'Sets realistic, data-driven targets per salesman',
-                'details': 'AI considers territory potential, seasonality, and individual performance to set achievable yet challenging targets.'
-            },
-            {
-                'id': 'customer-segmentation',
-                'title': 'Customer Segmentation',
-                'icon': '👥',
-                'color': 'linear-gradient(135deg, #06b6d4, #0891b2)',
-                'description': 'Groups customers by behavior and value',
-                'details': f"Identified {len(insights.get('top_customers_list', []))} high-value customers accounting for {sum([c.get('percentage', 0) for c in insights.get('top_customers_list', [])]):.1f}% of revenue." if insights.get('top_customers_list') else 'AI segments customers based on value, frequency, and buying patterns.'
-            }
-        ]
-        
-        with col1:
-            for i in range(0, len(insight_cards), 3):
-                if i < len(insight_cards):
-                    card = insight_cards[i]
-                    st.markdown(f"""
-                    <div class="insight-card" onclick="alert('{card['title']}')">
-                        <div class="insight-icon" style="background: {card['color']}">
-                            {card['icon']}
-                        </div>
-                        <div class="insight-title">{card['title']}</div>
-                        <div class="insight-desc">{card['description']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        with col2:
-            for i in range(1, len(insight_cards), 3):
-                if i < len(insight_cards):
-                    card = insight_cards[i]
-                    st.markdown(f"""
-                    <div class="insight-card">
-                        <div class="insight-icon" style="background: {card['color']}">
-                            {card['icon']}
-                        </div>
-                        <div class="insight-title">{card['title']}</div>
-                        <div class="insight-desc">{card['description']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        with col3:
-            for i in range(2, len(insight_cards), 3):
-                if i < len(insight_cards):
-                    card = insight_cards[i]
-                    st.markdown(f"""
-                    <div class="insight-card">
-                        <div class="insight-icon" style="background: {card['color']}">
-                            {card['icon']}
-                        </div>
-                        <div class="insight-title">{card['title']}</div>
-                        <div class="insight-desc">{card['description']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        # Display selected insight details
-        if st.session_state.selected_insight:
-            selected = next((c for c in insight_cards if c['id'] == st.session_state.selected_insight), None)
-            if selected:
-                st.markdown(f"""
-                <div style="background: #1e293b; border: 2px solid #3b82f6; border-radius: 12px; padding: 24px; margin-top: 24px;">
-                    <h3 style="color: {selected['color']}; font-size: 1.5rem; margin-bottom: 12px;">{selected['title']}</h3>
-                    <p style="color: #cbd5e1; font-size: 1.125rem;">{selected['details']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if st.button("Close Details"):
-                    st.session_state.selected_insight = None
-                    st.rerun()
-
-# Tab 4: Detailed Analysis
-with tab4:
     if st.session_state.data is None:
         st.warning("👆 Please upload your data in the 'Upload Data' tab first")
     else:
         insights = st.session_state.insights
         df = st.session_state.data
         
-        # TopSeven Summary cards
-        st.markdown("### 📊 Business Performance Metrics")
+        # Enhanced Business Performance Metrics
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); color: white; padding: 2rem; border-radius: 16px; margin-bottom: 2rem; box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);">
+            <h2 style="color: white; margin: 0 0 0.5rem 0; font-size: 1.75rem; font-weight: 700;">📊 Business Performance Metrics</h2>
+            <p style="color: #e2e8f0; margin: 0; font-size: 1rem;">Key insights and analytics from your sales data</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
         
         with metric_col1:
@@ -1517,16 +2018,148 @@ with tab4:
                 </div>
                 """, unsafe_allow_html=True)
         
+        # Performance Analytics Charts - MOVED TO TOP
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #06b6d4; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📈 Performance Analytics</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Time-series analysis and trend visualization</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Create sample time-series data for demonstration
+        if st.session_state.columns and 'date' in st.session_state.columns and st.session_state.columns['date']:
+            date_col = st.session_state.columns['date']
+            if date_col in df.columns:
+                # Find the revenue/amount column
+                revenue_col = None
+                if st.session_state.columns and 'amount' in st.session_state.columns and st.session_state.columns['amount']:
+                    revenue_col = st.session_state.columns['amount']
+                elif 'amount' in df.columns:
+                    revenue_col = 'amount'
+                elif 'revenue' in df.columns:
+                    revenue_col = 'revenue'
+                elif 'value' in df.columns:
+                    revenue_col = 'value'
+                elif 'price' in df.columns:
+                    revenue_col = 'price'
+                else:
+                    # Try to find any numeric column that could be revenue
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 0:
+                        revenue_col = numeric_cols[0]
+                
+                if revenue_col and revenue_col in df.columns:
+                    # Daily revenue trend
+                    daily_revenue = df.groupby(df[date_col].dt.date)[revenue_col].sum().reset_index()
+                    daily_revenue.columns = ['Date', 'Revenue']
+                    
+                    # Create professional line chart
+                    fig_line = px.line(
+                        daily_revenue,
+                        x='Date',
+                        y='Revenue',
+                        title="Daily Revenue Trend",
+                        color_discrete_sequence=['#3b82f6']
+                    )
+                    fig_line.update_layout(
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        font_color='#1e293b',
+                        font_size=12,
+                        title_font_size=16,
+                        title_font_color='#1e293b',
+                        xaxis=dict(
+                            gridcolor='#e2e8f0',
+                            linecolor='#1e293b',
+                            linewidth=1,
+                            zeroline=True,
+                            zerolinecolor='#1e293b',
+                            zerolinewidth=2
+                        ),
+                        yaxis=dict(
+                            gridcolor='#e2e8f0',
+                            linecolor='#1e293b',
+                            linewidth=1,
+                            zeroline=True,
+                            zerolinecolor='#1e293b',
+                            zerolinewidth=2
+                        ),
+                        margin=dict(l=0, r=0, t=40, b=40),
+                        showlegend=False
+                    )
+                    fig_line.update_traces(
+                        line=dict(width=3),
+                        fill='tonexty',
+                        fillcolor='rgba(59, 130, 246, 0.1)'
+                    )
+                    st.plotly_chart(fig_line, use_container_width=True)
+                else:
+                    st.info("📊 No numeric column found for revenue analysis. Please ensure your data has a revenue/amount column.")
+        
+        # Sales Performance Metrics
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ef4444; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🎯 Sales Performance Metrics</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Key performance indicators and business metrics</p>
+        </div>
+        """, unsafe_allow_html=True)
+        perf_col1, perf_col2, perf_col3 = st.columns(3)
+        
+        with perf_col1:
+            if 'total_revenue' in insights and 'total_records' in insights and insights['total_records'] > 0:
+                avg_revenue = insights['total_revenue'] / insights['total_records']
+                st.metric(
+                    "Average Sale Value",
+                    f"${avg_revenue:,.0f}",
+                    delta=f"${avg_revenue * 0.05:,.0f}",
+                    delta_color="normal"
+                )
+            else:
+                st.metric(
+                    "Total Records",
+                    f"{len(df):,}",
+                    delta="0",
+                    delta_color="normal"
+                )
+        
+        with perf_col2:
+            if st.session_state.columns and 'customer' in st.session_state.columns and st.session_state.columns['customer']:
+                customer_col = st.session_state.columns['customer']
+                if customer_col in df.columns:
+                    repeat_customers = df[customer_col].value_counts()
+                    repeat_rate = (repeat_customers > 1).sum() / len(repeat_customers) * 100
+                    st.metric(
+                        "Customer Retention Rate",
+                        f"{repeat_rate:.1f}%",
+                        delta=f"{repeat_rate * 0.02:.1f}%",
+                        delta_color="normal"
+                    )
+        
+        with perf_col3:
+            if 'top_salesmen' in insights and insights['top_salesmen']:
+                top_salesman_revenue = max(insights['top_salesmen'].values())
+                st.metric(
+                    "Top Performer Revenue",
+                    f"${top_salesman_revenue:,.0f}",
+                    delta=f"${top_salesman_revenue * 0.03:,.0f}",
+                    delta_color="normal"
+                )
+        
         # Top Salesmen
         if 'top_salesmen' in insights and insights['top_salesmen']:
-            st.markdown("### 🏆 Top 5 Salesmen")
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #3b82f6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🏆 Top 5 Salesmen</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Revenue performance by individual sales representatives</p>
+            </div>
+            """, unsafe_allow_html=True)
             top_salesmen_df = pd.DataFrame([
                 {'Salesman': name, 'Revenue': revenue}
                 for name, revenue in insights['top_salesmen'].items()
             ])
             st.dataframe(top_salesmen_df, use_container_width=True, hide_index=True)
             
-            # Chart
+            # Professional Chart
             fig = px.bar(
                 top_salesmen_df,
                 x='Revenue',
@@ -1534,22 +2167,49 @@ with tab4:
                 orientation='h',
                 title="Top Salesmen by Revenue",
                 color='Revenue',
-                color_continuous_scale='blues'
+                color_continuous_scale='Blues'
             )
             fig.update_layout(
-                plot_bgcolor='#1e293b',
-                paper_bgcolor='#1e293b',
-                font_color='#f8fafc'
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
             )
             st.plotly_chart(fig, use_container_width=True)
         
         # Top Customers
         if 'top_customers_list' in insights:
-            st.markdown("### 👥 Top 5 Customers")
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #10b981; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">👥 Top 5 Customers</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Highest revenue generating customer accounts</p>
+            </div>
+            """, unsafe_allow_html=True)
             top_customers_df = pd.DataFrame(insights['top_customers_list'])
             st.dataframe(top_customers_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
             
-            # Chart
+            # Professional Chart
             fig = px.bar(
                 top_customers_df,
                 x='revenue',
@@ -1557,18 +2217,45 @@ with tab4:
                 orientation='h',
                 title="Top Customers by Revenue",
                 color='revenue',
-                color_continuous_scale='greens'
+                color_continuous_scale='Greens'
             )
             fig.update_layout(
-                plot_bgcolor='#1e293b',
-                paper_bgcolor='#1e293b',
-                font_color='#f8fafc'
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
             )
             st.plotly_chart(fig, use_container_width=True)
         
         # Churn Risk
         if 'churn_risk' in insights and insights['churn_risk']:
-            st.markdown("### ⚠️ Churn Risk Alert")
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #f59e0b; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">⚠️ Churn Risk Alert</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Customers showing declining engagement patterns</p>
+            </div>
+            """, unsafe_allow_html=True)
             churn_df = pd.DataFrame(insights['churn_risk'])
             st.dataframe(churn_df, use_container_width=True, hide_index=True)
             
@@ -1576,11 +2263,16 @@ with tab4:
         
         # Top Products
         if 'top_products_list' in insights:
-            st.markdown("### 📦 Top 5 Products")
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #8b5cf6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📦 Top 5 Products</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Best performing products by revenue contribution</p>
+            </div>
+            """, unsafe_allow_html=True)
             top_products_df = pd.DataFrame(insights['top_products_list'])
             st.dataframe(top_products_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
             
-            # Chart
+            # Professional Chart
             fig = px.bar(
                 top_products_df,
                 x='revenue',
@@ -1588,14 +2280,542 @@ with tab4:
                 orientation='h',
                 title="Top Products by Revenue",
                 color='revenue',
-                color_continuous_scale='purples'
+                color_continuous_scale='Purples'
             )
             fig.update_layout(
-                plot_bgcolor='#1e293b',
-                paper_bgcolor='#1e293b',
-                font_color='#f8fafc'
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
             )
             st.plotly_chart(fig, use_container_width=True)
+        
+        
+        # Export functionality
+        with st.expander("📥 Export Data"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "📊 Download Data as CSV",
+                    csv,
+                    f"sales_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                    "text/csv"
+                )
+            
+            with col2:
+                if st.session_state.chat_history:
+                    chat_text = "\n\n".join([
+                        f"{msg['role'].upper()}: {msg['content']}"
+                        for msg in st.session_state.chat_history
+                    ])
+                    st.download_button(
+                        "💬 Download Chat History",
+                        chat_text,
+                        f"chat_history_{datetime.now().strftime('%Y%m%d')}.txt",
+                        "text/plain"
+                    )
+
+        insight_cards = [
+            {
+                'id': 'demand-forecast',
+                'title': 'Demand Forecasting',
+                'icon': '📈',
+                'color': 'linear-gradient(135deg, var(--topseven-blue), var(--topseven-light-blue))',
+                'description': 'AI predicts what each customer will order next',
+                'details': f"Based on {insights.get('total_records', 0)} transactions, AI can predict inventory needs with {insights.get('forecast_accuracy', 85)}% accuracy, reducing stock-outs by 40%."
+            },
+            {
+                'id': 'route-optimization',
+                'title': 'Smart Route Planning',
+                'icon': '📍',
+                'color': 'linear-gradient(135deg, #10b981, #059669)',
+                'description': 'Optimizes daily routes saving 2-3 hours per salesman',
+                'details': 'AI considers traffic, visit duration, and customer priority to create optimal routes. Expected time savings: 25-30% per day.'
+            },
+            {
+                'id': 'price-optimization',
+                'title': 'Dynamic Pricing',
+                'icon': '💰',
+                'color': 'linear-gradient(135deg, var(--topseven-orange), #d97706)',
+                'description': 'Suggests optimal prices and discounts per customer',
+                'details': 'AI analyzes customer price sensitivity and competitor data to maximize both revenue and customer satisfaction.'
+            },
+            {
+                'id': 'churn-prediction',
+                'title': 'Churn Risk Detection',
+                'icon': '⚠️',
+                'color': 'linear-gradient(135deg, #ef4444, #dc2626)',
+                'description': 'Identifies customers likely to stop ordering',
+                'details': f"{len(insights.get('churn_risk', []))} customers identified as high churn risk. AI recommends immediate outreach." if insights.get('churn_risk') else 'AI monitors ordering patterns to flag at-risk customers before they churn.'
+            },
+            {
+                'id': 'sales-target',
+                'title': 'Intelligent Target Setting',
+                'icon': '🎯',
+                'color': 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                'description': 'Sets realistic, data-driven targets per salesman',
+                'details': 'AI considers territory potential, seasonality, and individual performance to set achievable yet challenging targets.'
+            },
+            {
+                'id': 'customer-segmentation',
+                'title': 'Customer Segmentation',
+                'icon': '👥',
+                'color': 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                'description': 'Groups customers by behavior and value',
+                'details': f"Identified {len(insights.get('top_customers_list', []))} high-value customers accounting for {sum([c.get('percentage', 0) for c in insights.get('top_customers_list', [])]):.1f}% of revenue." if insights.get('top_customers_list') else 'AI segments customers based on value, frequency, and buying patterns.'
+            }
+        ]
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            for i in range(0, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card" onclick="alert('{card['title']}')">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with col2:
+            for i in range(1, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with col3:
+            for i in range(2, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Display selected insight details
+        if st.session_state.selected_insight:
+            selected = next((c for c in insight_cards if c['id'] == st.session_state.selected_insight), None)
+            if selected:
+                st.markdown(f"""
+                <div style="background: #1e293b; border: 2px solid #3b82f6; border-radius: 12px; padding: 24px; margin-top: 24px;">
+                    <h3 style="color: {selected['color']}; font-size: 1.5rem; margin-bottom: 12px;">{selected['title']}</h3>
+                    <p style="color: #cbd5e1; font-size: 1.125rem;">{selected['details']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button("Close Details"):
+                    st.session_state.selected_insight = None
+                    st.rerun()
+
+# Tab 4: AI Insights
+with tab4:
+    if st.session_state.data is None:
+        st.warning("👆 Please upload your data in the 'Upload Data' tab first")
+    else:
+        insights = st.session_state.insights
+        df = st.session_state.data
+        
+        # Enhanced Business Performance Metrics
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); color: white; padding: 2rem; border-radius: 16px; margin-bottom: 2rem; box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);">
+            <h2 style="color: white; margin: 0 0 0.5rem 0; font-size: 1.75rem; font-weight: 700;">📊 Business Performance Metrics</h2>
+            <p style="color: #e2e8f0; margin: 0; font-size: 1rem;">Key insights and analytics from your sales data</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+        
+        with metric_col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3 style="color: var(--topseven-blue); margin: 0 0 8px 0; font-size: 1.5rem;">{insights.get('total_records', 0):,}</h3>
+                <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Total Records</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with metric_col2:
+            if 'total_revenue' in insights:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: var(--topseven-orange); margin: 0 0 8px 0; font-size: 1.5rem;">${insights.get('total_revenue', 0):,.0f}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Total Revenue</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: var(--topseven-light-blue); margin: 0 0 8px 0; font-size: 1.5rem;">{len(df)}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Records Loaded</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with metric_col3:
+            if 'avg_order_value' in insights:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: #10b981; margin: 0 0 8px 0; font-size: 1.5rem;">${insights.get('avg_order_value', 0):,.0f}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Avg Order Value</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: #8b5cf6; margin: 0 0 8px 0; font-size: 1.5rem;">{len(df.columns)}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Data Columns</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with metric_col4:
+            if st.session_state.columns and st.session_state.columns['customer']:
+                unique_customers = df[st.session_state.columns['customer']].nunique()
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: #ef4444; margin: 0 0 8px 0; font-size: 1.5rem;">{unique_customers}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Unique Customers</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: #06b6d4; margin: 0 0 8px 0; font-size: 1.5rem;">{len(df)}</h3>
+                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Data Rows</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Performance Analytics Charts - MOVED TO TOP
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #06b6d4; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📈 Performance Analytics</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Time-series analysis and trend visualization</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Create sample time-series data for demonstration
+        if st.session_state.columns and 'date' in st.session_state.columns and st.session_state.columns['date']:
+            date_col = st.session_state.columns['date']
+            if date_col in df.columns:
+                # Find the revenue/amount column
+                revenue_col = None
+                if st.session_state.columns and 'amount' in st.session_state.columns and st.session_state.columns['amount']:
+                    revenue_col = st.session_state.columns['amount']
+                elif 'amount' in df.columns:
+                    revenue_col = 'amount'
+                elif 'revenue' in df.columns:
+                    revenue_col = 'revenue'
+                elif 'value' in df.columns:
+                    revenue_col = 'value'
+                elif 'price' in df.columns:
+                    revenue_col = 'price'
+                else:
+                    # Try to find any numeric column that could be revenue
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 0:
+                        revenue_col = numeric_cols[0]
+                
+                if revenue_col and revenue_col in df.columns:
+                    # Daily revenue trend
+                    daily_revenue = df.groupby(df[date_col].dt.date)[revenue_col].sum().reset_index()
+                    daily_revenue.columns = ['Date', 'Revenue']
+                    
+                    # Create professional line chart
+                    fig_line = px.line(
+                        daily_revenue,
+                        x='Date',
+                        y='Revenue',
+                        title="Daily Revenue Trend",
+                        color_discrete_sequence=['#3b82f6']
+                    )
+                    fig_line.update_layout(
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        font_color='#1e293b',
+                        font_size=12,
+                        title_font_size=16,
+                        title_font_color='#1e293b',
+                        xaxis=dict(
+                            gridcolor='#e2e8f0',
+                            linecolor='#1e293b',
+                            linewidth=1,
+                            zeroline=True,
+                            zerolinecolor='#1e293b',
+                            zerolinewidth=2
+                        ),
+                        yaxis=dict(
+                            gridcolor='#e2e8f0',
+                            linecolor='#1e293b',
+                            linewidth=1,
+                            zeroline=True,
+                            zerolinecolor='#1e293b',
+                            zerolinewidth=2
+                        ),
+                        margin=dict(l=0, r=0, t=40, b=40),
+                        showlegend=False
+                    )
+                    fig_line.update_traces(
+                        line=dict(width=3),
+                        fill='tonexty',
+                        fillcolor='rgba(59, 130, 246, 0.1)'
+                    )
+                    st.plotly_chart(fig_line, use_container_width=True)
+                else:
+                    st.info("📊 No numeric column found for revenue analysis. Please ensure your data has a revenue/amount column.")
+        
+        # Sales Performance Metrics
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ef4444; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🎯 Sales Performance Metrics</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Key performance indicators and business metrics</p>
+        </div>
+        """, unsafe_allow_html=True)
+        perf_col1, perf_col2, perf_col3 = st.columns(3)
+        
+        with perf_col1:
+            if 'total_revenue' in insights and 'total_records' in insights and insights['total_records'] > 0:
+                avg_revenue = insights['total_revenue'] / insights['total_records']
+                st.metric(
+                    "Average Sale Value",
+                    f"${avg_revenue:,.0f}",
+                    delta=f"${avg_revenue * 0.05:,.0f}",
+                    delta_color="normal"
+                )
+            else:
+                st.metric(
+                    "Total Records",
+                    f"{len(df):,}",
+                    delta="0",
+                    delta_color="normal"
+                )
+        
+        with perf_col2:
+            if st.session_state.columns and 'customer' in st.session_state.columns and st.session_state.columns['customer']:
+                customer_col = st.session_state.columns['customer']
+                if customer_col in df.columns:
+                    repeat_customers = df[customer_col].value_counts()
+                    repeat_rate = (repeat_customers > 1).sum() / len(repeat_customers) * 100
+                    st.metric(
+                        "Customer Retention Rate",
+                        f"{repeat_rate:.1f}%",
+                        delta=f"{repeat_rate * 0.02:.1f}%",
+                        delta_color="normal"
+                    )
+        
+        with perf_col3:
+            if 'top_salesmen' in insights and insights['top_salesmen']:
+                top_salesman_revenue = max(insights['top_salesmen'].values())
+                st.metric(
+                    "Top Performer Revenue",
+                    f"${top_salesman_revenue:,.0f}",
+                    delta=f"${top_salesman_revenue * 0.03:,.0f}",
+                    delta_color="normal"
+                )
+        
+        # Top Salesmen
+        if 'top_salesmen' in insights and insights['top_salesmen']:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #3b82f6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🏆 Top 5 Salesmen</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Revenue performance by individual sales representatives</p>
+            </div>
+            """, unsafe_allow_html=True)
+            top_salesmen_df = pd.DataFrame([
+                {'Salesman': name, 'Revenue': revenue}
+                for name, revenue in insights['top_salesmen'].items()
+            ])
+            st.dataframe(top_salesmen_df, use_container_width=True, hide_index=True)
+            
+            # Professional Chart
+            fig = px.bar(
+                top_salesmen_df,
+                x='Revenue',
+                y='Salesman',
+                orientation='h',
+                title="Top Salesmen by Revenue",
+                color='Revenue',
+                color_continuous_scale='Blues'
+            )
+            fig.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Top Customers
+        if 'top_customers_list' in insights:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #10b981; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">👥 Top 5 Customers</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Highest revenue generating customer accounts</p>
+            </div>
+            """, unsafe_allow_html=True)
+            top_customers_df = pd.DataFrame(insights['top_customers_list'])
+            st.dataframe(top_customers_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
+            
+            # Professional Chart
+            fig = px.bar(
+                top_customers_df,
+                x='revenue',
+                y='name',
+                orientation='h',
+                title="Top Customers by Revenue",
+                color='revenue',
+                color_continuous_scale='Greens'
+            )
+            fig.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Churn Risk
+        if 'churn_risk' in insights and insights['churn_risk']:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #f59e0b; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">⚠️ Churn Risk Alert</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Customers showing declining engagement patterns</p>
+            </div>
+            """, unsafe_allow_html=True)
+            churn_df = pd.DataFrame(insights['churn_risk'])
+            st.dataframe(churn_df, use_container_width=True, hide_index=True)
+            
+            st.info("💡 **AI Recommendation:** Schedule immediate visits to these customers. Offer special promotions to re-engage them.")
+        
+        # Top Products
+        if 'top_products_list' in insights:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #8b5cf6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📦 Top 5 Products</h3>
+                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Best performing products by revenue contribution</p>
+            </div>
+            """, unsafe_allow_html=True)
+            top_products_df = pd.DataFrame(insights['top_products_list'])
+            st.dataframe(top_products_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
+            
+            # Professional Chart
+            fig = px.bar(
+                top_products_df,
+                x='revenue',
+                y='name',
+                orientation='h',
+                title="Top Products by Revenue",
+                color='revenue',
+                color_continuous_scale='Purples'
+            )
+            fig.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font_color='#1e293b',
+                font_size=12,
+                title_font_size=16,
+                title_font_color='#1e293b',
+                xaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1,
+                    zeroline=True,
+                    zerolinecolor='#1e293b',
+                    zerolinewidth=2
+                ),
+                yaxis=dict(
+                    gridcolor='#e2e8f0',
+                    linecolor='#1e293b',
+                    linewidth=1
+                ),
+                margin=dict(l=0, r=0, t=40, b=40),
+                showlegend=False
+            )
+            fig.update_traces(
+                marker_line_width=0,
+                marker_line_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
         
         # Export functionality
         with st.expander("📥 Export Data"):
@@ -1627,30 +2847,24 @@ with tab4:
 st.markdown("---")
 
 # Footer content using Streamlit columns
-col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+col1, col2, col3 = st.columns([2, 1, 1])
 
 with col1:
     st.markdown("### 🚀 Rapid Sales")
-    st.markdown("**Powered by TopSeven**")
-    st.markdown("High-quality software systems for ERP markets in the Middle East")
+    st.markdown("**TOPSEVEN**")
+    st.markdown("High-quality software systems delivering enterprise ERP solutions for the Middle East market.")
 
 with col2:
-    st.markdown("#### 📞 Contact")
+    st.markdown("#### Contact")
     st.markdown("📧 contact@itop7.net")
     st.markdown("🌐 itop7.net")
     st.markdown("📱 +20 150 768 0215")
 
 with col3:
-    st.markdown("#### 📍 Address")
+    st.markdown("#### Location")
     st.markdown("13 Khaled Ibn Al-Waleed Street")
-    st.markdown("Sheraton Al-Matar - Heliopolis")
-
-with col4:
-    st.markdown("#### 🛠️ Services")
-    st.markdown("• Microsoft Dynamics 365")
-    st.markdown("• Rapid Sales")
-    st.markdown("• Stock Control Management")
-    st.markdown("• Self Service")
+    st.markdown("Sheraton Al-Matar")
+    st.markdown("Heliopolis, Egypt")
 
 st.markdown("---")
 st.markdown("**© 2025 TopSeven. All rights reserved. | Rapid Sales AI Demo**")
