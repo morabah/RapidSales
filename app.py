@@ -6,6 +6,18 @@ import plotly.graph_objects as go
 import json
 import numpy as np
 from datetime import datetime
+import re
+from dateutil.relativedelta import relativedelta
+
+# Optional Gemini availability check (graceful fallback if key missing)
+USE_GEMINI = False
+try:
+    _k = st.secrets.get("GEMINI_API_KEY", None)
+    if _k:
+        genai.configure(api_key=_k)
+        USE_GEMINI = True
+except Exception:
+    USE_GEMINI = False
 
 # Page configuration
 st.set_page_config(
@@ -1408,15 +1420,74 @@ if 'columns' not in st.session_state:
 if 'selected_insight' not in st.session_state:
     st.session_state.selected_insight = None
 
-# Helper functions
-def find_column(df, keywords):
-    """Find column name that matches keywords"""
-    for col in df.columns:
-        col_lower = col.lower()
-        if any(keyword.lower() in col_lower for keyword in keywords):
-            return col
+# Period parsing helpers
+def parse_period(text: str):
+    """Return ('this_month'| 'last_month' | 'last_n_months', n | None) or None."""
+    q = (text or "").lower()
+    if "this month" in q:
+        return ("this_month", None)
+    if "last month" in q:
+        return ("last_month", None)
+    m = re.search(r'last\s+(\d+)\s+months?', q)
+    if m:
+        try:
+            return ("last_n_months", int(m.group(1)))
+        except Exception:
+            return None
     return None
 
+def filter_by_period(df, date_col, period):
+    if not period or not date_col or date_col not in df.columns:
+        return df
+    now = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0)
+    p, n = period
+    if p == "this_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = start + relativedelta(months=1)
+    elif p == "last_month":
+        end = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = end - relativedelta(months=1)
+    elif p == "last_n_months" and n:
+        end = now
+        start = end - relativedelta(months=n)
+    else:
+        return df
+    d = pd.to_datetime(df[date_col], errors='coerce')
+    return df[(d >= start) & (d < end)].copy()
+
+# Helper functions
+def find_column(df, keywords):
+    """
+    Prefer exact/word-bound matches; fall back to safe substring if needed.
+    Returns the first best match.
+    """
+    cols = list(df.columns)
+    lower = {c: c.lower() for c in cols}
+
+    # exact match
+    for kw in keywords:
+        for c in cols:
+            if lower[c] == kw.lower():
+                return c
+
+    # word-boundary match
+    for kw in keywords:
+        pat = re.compile(rf'\b{re.escape(kw.lower())}\b')
+        for c in cols:
+            if pat.search(lower[c]):
+                return c
+
+    # safe substring match (avoid colliding words like salesman)
+    blocklist = {"salesman", "sales_person", "sales man", "rep", "agent", "sales rep"}
+    for kw in keywords:
+        k = kw.lower()
+        for c in cols:
+            lc = lower[c]
+            if k in lc and lc not in blocklist:
+                return c
+    return None
+
+@st.cache_data(ttl=600)
 def calculate_insights(df):
     """Calculate insights from data"""
     if df is None or len(df) == 0:
@@ -1428,9 +1499,21 @@ def calculate_insights(df):
         'amount': find_column(df, ['amount', 'sales', 'revenue', 'total', 'value']),
         'salesman': find_column(df, ['salesman', 'sales_person', 'sales man', 'rep', 'agent', 'sales rep']),
         'product': find_column(df, ['product', 'item', 'sku']),
-        'date': find_column(df, ['date', 'transaction_date', 'order_date']),
-        'quantity': find_column(df, ['quantity', 'qty', 'units'])
+        'date': find_column(df, ['date', 'transaction_date', 'order_date', 'visitdate', 'invoicedate']),
+        'quantity': find_column(df, ['quantity', 'qty', 'units']),
+        'price': find_column(df, ['price', 'unit_price', 'rate'])
     }
+
+    # Parse dates early
+    if columns['date'] and columns['date'] in df.columns:
+        df[columns['date']] = pd.to_datetime(df[columns['date']], errors='coerce')
+
+    # Derive amount if missing but qty & price exist
+    if not columns['amount'] and columns['quantity'] and columns['price']:
+        q, p = columns['quantity'], columns['price']
+        if q in df.columns and p in df.columns:
+            df['_AMOUNT_'] = pd.to_numeric(df[q], errors='coerce').fillna(0) * pd.to_numeric(df[p], errors='coerce').fillna(0)
+            columns['amount'] = '_AMOUNT_'
     
     st.session_state.columns = columns
     
@@ -1553,63 +1636,85 @@ def prepare_data_summary(df, insights):
     return summary
 
 def create_data_table(df, question, insights):
-    """Create relevant data tables based on the question"""
+    """Return a DataFrame relevant to the question with period awareness."""
     if df is None:
         return None
-    
-    question_lower = question.lower()
-    
-    # Top salesmen table
-    if any(word in question_lower for word in ['salesman', 'sales rep', 'rep', 'best salesman', 'top salesman']):
-        if 'top_salesmen' in insights and insights['top_salesmen']:
-            top_salesmen_df = pd.DataFrame([
-                {'Salesman': name, 'Revenue': f"${revenue:,.0f}"}
-                for name, revenue in insights['top_salesmen'].items()
-            ])
-            return top_salesmen_df
-    
-    # Top customers table
-    if any(word in question_lower for word in ['customer', 'client', 'top customer', 'best customer']):
-        if 'top_customers_list' in insights and insights['top_customers_list']:
-            top_customers_df = pd.DataFrame(insights['top_customers_list'])
-            top_customers_df['revenue'] = top_customers_df['revenue'].apply(lambda x: f"${x:,.0f}")
-            return top_customers_df[['name', 'revenue', 'percentage']]
-    
-    # Top products table
-    if any(word in question_lower for word in ['product', 'item', 'top product', 'best product']):
-        if 'top_products_list' in insights and insights['top_products_list']:
-            top_products_df = pd.DataFrame(insights['top_products_list'])
-            top_products_df['revenue'] = top_products_df['revenue'].apply(lambda x: f"${x:,.0f}")
-            return top_products_df[['name', 'revenue', 'percentage']]
-    
-    # Churn risk table
-    if any(word in question_lower for word in ['churn', 'risk', 'declining', 'at-risk']):
-        if 'churn_risk' in insights and insights['churn_risk']:
-            churn_df = pd.DataFrame(insights['churn_risk'])
-            return churn_df
-    
+
+    ql = (question or "").lower()
+    cols = st.session_state.get('columns', {}) or {}
+    amt = cols.get('amount')
+    sm  = cols.get('salesman')
+    dt  = cols.get('date')
+
+    # Apply period filter if present
+    per = parse_period(ql)
+    if per:
+        df = filter_by_period(df, dt, per)
+
+    # If amount is missing after all, bail
+    if not amt or amt not in df.columns:
+        return None
+
+    # Normalize amount to numeric
+    vals = pd.to_numeric(df[amt], errors='coerce').fillna(0)
+    df = df.assign(__amt=vals)
+
+    # 1) Salesman questions
+    if any(w in ql for w in ['salesman', 'sales rep', 'rep', 'best salesman', 'top salesman']):
+        if sm and sm in df.columns:
+            out = df.groupby(sm, dropna=False)['__amt'].sum().reset_index()
+            out = out.sort_values('__amt', ascending=False).rename(columns={sm: 'Salesman', '__amt': 'Revenue'})
+            out['Revenue'] = out['Revenue'].round(2)
+            return out.head(10)
+
+    # 2) Product questions
+    prod = cols.get('product')
+    if any(w in ql for w in ['product', 'item', 'sku', 'top product', 'best product']) and prod and prod in df.columns:
+        out = df.groupby(prod, dropna=False)['__amt'].sum().reset_index()
+        out = out.sort_values('__amt', ascending=False).rename(columns={prod: 'Product', '__amt': 'Revenue'})
+        out['Revenue'] = out['Revenue'].round(2)
+        return out.head(10)
+
+    # 3) Customer questions
+    cust = cols.get('customer')
+    if any(w in ql for w in ['customer', 'client', 'account', 'top customer', 'best customer']) and cust and cust in df.columns:
+        out = df.groupby(cust, dropna=False)['__amt'].sum().reset_index()
+        out = out.sort_values('__amt', ascending=False).rename(columns={cust: 'Customer', '__amt': 'Revenue'})
+        out['Revenue'] = out['Revenue'].round(2)
+        return out.head(10)
+
+    # Default: monthly rollup if date exists
+    if dt and dt in df.columns:
+        month = pd.to_datetime(df[dt], errors='coerce').dt.to_period('M').astype(str)
+        out = df.groupby(month, dropna=False)['__amt'].sum().reset_index()
+        out = out.rename(columns={dt: 'Month', '__amt': 'Revenue'})
+        out['Revenue'] = out['Revenue'].round(2)
+        out = out.sort_values('Month')
+        return out
+
     return None
 
 def query_ai(question, data_summary, df=None, insights=None):
-    """Query Gemini AI with user question"""
+    """
+    If Gemini is available, ask it for a polished write-up.
+    Otherwise, build a local, data-grounded answer.
+    """
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # Ensure data_summary is JSON serializable
-        try:
-            json_data = json.dumps(data_summary, indent=2, default=str)
-        except Exception as json_error:
-            # If still having serialization issues, convert everything to strings
-            safe_summary = {}
-            for key, value in data_summary.items():
-                if isinstance(value, (dict, list)):
-                    safe_summary[key] = str(value)
-                else:
-                    safe_summary[key] = value
-            json_data = json.dumps(safe_summary, indent=2, default=str)
-        
-        prompt = f"""You are a professional business intelligence analyst for Rapid Sales, a TopSeven enterprise solution.
+        if USE_GEMINI:
+            # Ensure data_summary is JSON serializable
+            try:
+                json_data = json.dumps(data_summary, indent=2, default=str)
+            except Exception:
+                safe_summary = {}
+                for key, value in data_summary.items():
+                    if isinstance(value, (dict, list)):
+                        safe_summary[key] = str(value)
+                    else:
+                        safe_summary[key] = value
+                json_data = json.dumps(safe_summary, indent=2, default=str)
+
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            prompt = f"""You are a professional business intelligence analyst for Rapid Sales, a TopSeven enterprise solution.
 
 KNOWLEDGE BASE (RAG - Retrieval Augmented Generation):
 The uploaded Excel file serves as your complete knowledge base. All analysis must be grounded in this data.
@@ -1654,17 +1759,26 @@ RESPONSE STRUCTURE:
 2. [Action 2]
 
 Generate response:"""
-        
-        response = model.generate_content(prompt)
-        return response.text
+            response = model.generate_content(prompt)
+            return response.text
+
+        # ---- Local fallback (no external LLM) ----
+        table = create_data_table(df, question, insights)
+        if table is not None and not table.empty:
+            top_row = table.iloc[0].to_dict()
+            return (
+                "## Executive Summary\n"
+                "- Answered locally from the uploaded sheet (no external AI).\n\n"
+                "## Analysis\n"
+                f"- Top row: `{top_row}`\n\n"
+                "## Recommended Actions\n"
+                "1. Investigate why winners win (mix, price, route).\n"
+                "2. Coach bottom performers using items and customers from the top group."
+            )
+        return "I couldn’t find the needed columns yet. Please check that amount/value and date/salesman exist."
+
     except Exception as e:
-        error_msg = str(e)
-        if "JSON" in error_msg or "serializable" in error_msg:
-            return f"Data processing error: Unable to process the data format. Please check your Excel file format and try again."
-        elif "API" in error_msg or "key" in error_msg.lower():
-            return f"API Error: {error_msg}\n\nPlease check your Gemini API key configuration."
-        else:
-            return f"Error processing your request: {error_msg}\n\nPlease try again or contact support if the issue persists."
+        return f"Error while answering: {e}"
 
 # Professional TopSeven Header
 st.markdown("""
