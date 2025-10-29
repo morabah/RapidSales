@@ -132,8 +132,6 @@ For issues or questions, please check the Streamlit documentation or Google Gemi
 
 ---
 
-**Rapid Sales AI Demo** - Transforming sales operations with AI
-
 # Rapid Sales AI Demo
 
 AI-powered sales data analysis tool using Google Gemini and Streamlit.
