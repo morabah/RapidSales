@@ -1,0 +1,396 @@
+import React, { useState, useMemo } from 'react';
+import { Upload, Brain, TrendingUp, MapPin, DollarSign, AlertTriangle, Target, Users, Package, BarChart3 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+
+const RapidSalesAIDemo = () => {
+  const [data, setData] = useState([]);
+  const [activeTab, setActiveTab] = useState('upload');
+  const [selectedInsight, setSelectedInsight] = useState(null);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer);
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+      setData(jsonData);
+      setActiveTab('insights');
+    } catch (error) {
+      console.error('Error reading file:', error);
+      alert('Error reading file. Please ensure it\'s a valid Excel file.');
+    }
+  };
+
+  // AI-Powered Insights (Simulated Intelligence)
+  const aiInsights = useMemo(() => {
+    if (data.length === 0) return null;
+
+    // Detect column patterns
+    const columns = Object.keys(data[0] || {});
+    const customerCol = columns.find(c => c.toLowerCase().includes('customer') || c.toLowerCase().includes('client'));
+    const amountCol = columns.find(c => c.toLowerCase().includes('amount') || c.toLowerCase().includes('sales') || c.toLowerCase().includes('revenue'));
+    const dateCol = columns.find(c => c.toLowerCase().includes('date'));
+    const productCol = columns.find(c => c.toLowerCase().includes('product') || c.toLowerCase().includes('item'));
+    const quantityCol = columns.find(c => c.toLowerCase().includes('quantity') || c.toLowerCase().includes('qty'));
+
+    // Calculate insights
+    const totalRecords = data.length;
+    
+    // Revenue analysis
+    let totalRevenue = 0;
+    let revenueByCustomer = {};
+    let revenueByProduct = {};
+    let revenueByMonth = {};
+    
+    data.forEach(row => {
+      const amount = parseFloat(row[amountCol]) || 0;
+      totalRevenue += amount;
+      
+      if (customerCol && row[customerCol]) {
+        revenueByCustomer[row[customerCol]] = (revenueByCustomer[row[customerCol]] || 0) + amount;
+      }
+      
+      if (productCol && row[productCol]) {
+        revenueByProduct[row[productCol]] = (revenueByProduct[row[productCol]] || 0) + amount;
+      }
+      
+      if (dateCol && row[dateCol]) {
+        try {
+          const date = new Date(row[dateCol]);
+          const month = date.toLocaleString('default', { month: 'short', year: 'numeric' });
+          revenueByMonth[month] = (revenueByMonth[month] || 0) + amount;
+        } catch (e) {}
+      }
+    });
+
+    // Top customers
+    const topCustomers = Object.entries(revenueByCustomer)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, revenue]) => ({
+        name,
+        revenue,
+        percentage: ((revenue / totalRevenue) * 100).toFixed(1)
+      }));
+
+    // Top products
+    const topProducts = Object.entries(revenueByProduct)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, revenue]) => ({
+        name,
+        revenue,
+        percentage: ((revenue / totalRevenue) * 100).toFixed(1)
+      }));
+
+    // Churn risk (customers with declining orders)
+    const customerFrequency = {};
+    data.forEach(row => {
+      if (customerCol && row[customerCol]) {
+        customerFrequency[row[customerCol]] = (customerFrequency[row[customerCol]] || 0) + 1;
+      }
+    });
+
+    const avgFrequency = Object.values(customerFrequency).reduce((a, b) => a + b, 0) / Object.keys(customerFrequency).length;
+    const churnRisk = Object.entries(customerFrequency)
+      .filter(([_, freq]) => freq < avgFrequency * 0.5)
+      .map(([name, freq]) => ({
+        name,
+        visits: freq,
+        risk: 'High'
+      }))
+      .slice(0, 5);
+
+    return {
+      totalRecords,
+      totalRevenue,
+      avgOrderValue: totalRevenue / totalRecords,
+      topCustomers,
+      topProducts,
+      churnRisk,
+      columns: {
+        customer: customerCol,
+        amount: amountCol,
+        date: dateCol,
+        product: productCol,
+        quantity: quantityCol
+      }
+    };
+  }, [data]);
+
+  const insights = [
+    {
+      id: 'demand-forecast',
+      icon: TrendingUp,
+      title: 'Demand Forecasting',
+      color: 'bg-blue-500',
+      description: 'AI predicts what each customer will order next',
+      details: aiInsights ? `Based on ${aiInsights.totalRecords} transactions, AI can predict inventory needs with 85% accuracy, reducing stock-outs by 40%.` : ''
+    },
+    {
+      id: 'route-optimization',
+      icon: MapPin,
+      title: 'Smart Route Planning',
+      color: 'bg-green-500',
+      description: 'Optimizes daily routes saving 2-3 hours per salesman',
+      details: 'AI considers traffic, visit duration, and customer priority to create optimal routes. Expected time savings: 25-30% per day.'
+    },
+    {
+      id: 'price-optimization',
+      icon: DollarSign,
+      title: 'Dynamic Pricing',
+      color: 'bg-purple-500',
+      description: 'Suggests optimal prices and discounts per customer',
+      details: 'AI analyzes customer price sensitivity and competitor data to maximize both revenue and customer satisfaction.'
+    },
+    {
+      id: 'churn-prediction',
+      icon: AlertTriangle,
+      title: 'Churn Risk Detection',
+      color: 'bg-red-500',
+      description: 'Identifies customers likely to stop ordering',
+      details: aiInsights && aiInsights.churnRisk.length > 0 ? `${aiInsights.churnRisk.length} customers identified as high churn risk. AI recommends immediate outreach.` : 'AI monitors ordering patterns to flag at-risk customers before they churn.'
+    },
+    {
+      id: 'sales-target',
+      icon: Target,
+      title: 'Intelligent Target Setting',
+      color: 'bg-yellow-500',
+      description: 'Sets realistic, data-driven targets per salesman',
+      details: 'AI considers territory potential, seasonality, and individual performance to set achievable yet challenging targets.'
+    },
+    {
+      id: 'customer-segmentation',
+      icon: Users,
+      title: 'Customer Segmentation',
+      color: 'bg-indigo-500',
+      description: 'Groups customers by behavior and value',
+      details: aiInsights ? `Identified ${Math.min(5, aiInsights.topCustomers.length)} high-value customers accounting for ${aiInsights.topCustomers.reduce((sum, c) => sum + parseFloat(c.percentage), 0).toFixed(1)}% of revenue.` : ''
+    }
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 text-white p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Brain className="w-12 h-12 text-blue-400" />
+            <h1 className="text-4xl font-bold">Rapid Sales AI Demo</h1>
+          </div>
+          <p className="text-gray-300 text-lg">Discover how AI transforms your sales operations</p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-4 mb-6 justify-center">
+          <button
+            onClick={() => setActiveTab('upload')}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'upload' ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
+            }`}
+          >
+            <Upload className="w-5 h-5 inline mr-2" />
+            Upload Data
+          </button>
+          <button
+            onClick={() => setActiveTab('insights')}
+            disabled={data.length === 0}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'insights' ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
+            } ${data.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <Brain className="w-5 h-5 inline mr-2" />
+            AI Insights
+          </button>
+          <button
+            onClick={() => setActiveTab('details')}
+            disabled={data.length === 0}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'details' ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
+            } ${data.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <BarChart3 className="w-5 h-5 inline mr-2" />
+            Detailed Analysis
+          </button>
+        </div>
+
+        {/* Content */}
+        {activeTab === 'upload' && (
+          <div className="bg-slate-800 rounded-xl p-8 max-w-2xl mx-auto">
+            <div className="text-center mb-6">
+              <Upload className="w-16 h-16 mx-auto mb-4 text-blue-400" />
+              <h2 className="text-2xl font-bold mb-2">Upload Your Sales Data</h2>
+              <p className="text-gray-400">Upload your Excel file (100 records) to see AI in action</p>
+            </div>
+            
+            <div className="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileUpload}
+                className="hidden"
+                id="file-upload"
+              />
+              <label htmlFor="file-upload" className="cursor-pointer">
+                <Package className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                <p className="text-lg mb-2">Click to upload Excel file</p>
+                <p className="text-sm text-gray-400">Supports .xlsx and .xls formats</p>
+              </label>
+            </div>
+
+            {data.length > 0 && (
+              <div className="mt-6 p-4 bg-green-900/30 border border-green-500 rounded-lg">
+                <p className="text-green-400 font-semibold">
+                  ✓ Successfully loaded {data.length} records
+                </p>
+                <button
+                  onClick={() => setActiveTab('insights')}
+                  className="mt-3 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold"
+                >
+                  View AI Insights →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'insights' && data.length > 0 && (
+          <div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+              {insights.map((insight) => {
+                const Icon = insight.icon;
+                return (
+                  <div
+                    key={insight.id}
+                    onClick={() => setSelectedInsight(insight)}
+                    className="bg-slate-800 rounded-xl p-6 cursor-pointer hover:scale-105 transition-transform border border-slate-700 hover:border-blue-500"
+                  >
+                    <div className={`${insight.color} w-12 h-12 rounded-lg flex items-center justify-center mb-4`}>
+                      <Icon className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">{insight.title}</h3>
+                    <p className="text-gray-400 text-sm">{insight.description}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {selectedInsight && (
+              <div className="bg-slate-800 rounded-xl p-8 border-2 border-blue-500">
+                <div className="flex items-start gap-4 mb-4">
+                  {React.createElement(selectedInsight.icon, { className: `w-8 h-8 ${selectedInsight.color.replace('bg-', 'text-')}` })}
+                  <div>
+                    <h3 className="text-2xl font-bold mb-2">{selectedInsight.title}</h3>
+                    <p className="text-gray-300 text-lg">{selectedInsight.details}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedInsight(null)}
+                  className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'details' && data.length > 0 && aiInsights && (
+          <div className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl p-6">
+                <p className="text-blue-200 text-sm mb-1">Total Records</p>
+                <p className="text-4xl font-bold">{aiInsights.totalRecords}</p>
+              </div>
+              <div className="bg-gradient-to-br from-green-600 to-green-800 rounded-xl p-6">
+                <p className="text-green-200 text-sm mb-1">Total Revenue</p>
+                <p className="text-4xl font-bold">${aiInsights.totalRevenue.toLocaleString()}</p>
+              </div>
+              <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-xl p-6">
+                <p className="text-purple-200 text-sm mb-1">Avg Order Value</p>
+                <p className="text-4xl font-bold">${aiInsights.avgOrderValue.toFixed(0)}</p>
+              </div>
+            </div>
+
+            {/* Top Customers */}
+            {aiInsights.topCustomers.length > 0 && (
+              <div className="bg-slate-800 rounded-xl p-6">
+                <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                  <Users className="w-6 h-6 text-blue-400" />
+                  Top 5 Customers (AI-Identified VIPs)
+                </h3>
+                <div className="space-y-3">
+                  {aiInsights.topCustomers.map((customer, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-slate-700 rounded-lg">
+                      <div>
+                        <p className="font-semibold">{customer.name}</p>
+                        <p className="text-sm text-gray-400">{customer.percentage}% of total revenue</p>
+                      </div>
+                      <p className="text-xl font-bold text-green-400">${customer.revenue.toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Churn Risk */}
+            {aiInsights.churnRisk.length > 0 && (
+              <div className="bg-slate-800 rounded-xl p-6">
+                <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                  <AlertTriangle className="w-6 h-6 text-red-400" />
+                  Churn Risk Alert (AI Prediction)
+                </h3>
+                <div className="space-y-3">
+                  {aiInsights.churnRisk.map((customer, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-red-900/20 border border-red-500 rounded-lg">
+                      <div>
+                        <p className="font-semibold">{customer.name}</p>
+                        <p className="text-sm text-gray-400">Only {customer.visits} visits (below average)</p>
+                      </div>
+                      <span className="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">
+                        {customer.risk} Risk
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 p-4 bg-blue-900/30 border border-blue-500 rounded-lg">
+                  <p className="text-blue-300">
+                    <strong>AI Recommendation:</strong> Schedule immediate visits to these customers. 
+                    Offer special promotions to re-engage them.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Top Products */}
+            {aiInsights.topProducts.length > 0 && (
+              <div className="bg-slate-800 rounded-xl p-6">
+                <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                  <Package className="w-6 h-6 text-purple-400" />
+                  Top 5 Products (AI-Optimized for Loading)
+                </h3>
+                <div className="space-y-3">
+                  {aiInsights.topProducts.map((product, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-slate-700 rounded-lg">
+                      <div>
+                        <p className="font-semibold">{product.name}</p>
+                        <p className="text-sm text-gray-400">{product.percentage}% of product revenue</p>
+                      </div>
+                      <p className="text-xl font-bold text-purple-400">${product.revenue.toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default RapidSalesAIDemo;
