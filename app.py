@@ -2454,394 +2454,144 @@ with tab4:
         st.warning("👆 Please upload your data in the 'Upload Data' tab first")
     else:
         insights = st.session_state.insights
-        df = st.session_state.data
         
-        # Enhanced Business Performance Metrics
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); color: white; padding: 2rem; border-radius: 16px; margin-bottom: 2rem; box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);">
-            <h2 style="color: white; margin: 0 0 0.5rem 0; font-size: 1.75rem; font-weight: 700;">📊 Business Performance Metrics</h2>
-            <p style="color: #e2e8f0; margin: 0; font-size: 1rem;">Key insights and analytics from your sales data</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # TopSeven AI Insight cards
+        st.markdown("### 🧠 AI-Powered Business Solutions")
+        st.markdown("Click on any insight to explore detailed analysis")
         
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
-        with metric_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: var(--topseven-blue); margin: 0 0 8px 0; font-size: 1.5rem;">{insights.get('total_records', 0):,}</h3>
-                <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Total Records</p>
-            </div>
-            """, unsafe_allow_html=True)
+        insight_cards = [
+            {
+                'id': 'demand-forecast',
+                'title': 'Demand Forecasting',
+                'icon': '📈',
+                'color': 'linear-gradient(135deg, var(--topseven-blue), var(--topseven-light-blue))',
+                'description': 'AI predicts what each customer will order next',
+                'details': f"Based on {insights.get('total_records', 0)} transactions, AI can predict inventory needs with {insights.get('forecast_accuracy', 85)}% accuracy, reducing stock-outs by 40%."
+            },
+            {
+                'id': 'route-optimization',
+                'title': 'Smart Route Planning',
+                'icon': '📍',
+                'color': 'linear-gradient(135deg, #10b981, #059669)',
+                'description': 'Optimizes daily routes saving 2-3 hours per salesman',
+                'details': 'AI considers traffic, visit duration, and customer priority to create optimal routes. Expected time savings: 25-30% per day.'
+            },
+            {
+                'id': 'price-optimization',
+                'title': 'Dynamic Pricing',
+                'icon': '💰',
+                'color': 'linear-gradient(135deg, #f59e0b, #d97706)',
+                'description': 'Adjusts prices based on demand and competition',
+                'details': 'AI analyzes market conditions, customer behavior, and inventory levels to suggest optimal pricing strategies, potentially increasing revenue by 15-20%.'
+            },
+            {
+                'id': 'inventory-management',
+                'title': 'Smart Inventory',
+                'icon': '📦',
+                'color': 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                'description': 'Predicts stock needs and prevents shortages',
+                'details': 'AI forecasts demand patterns and automatically suggests reorder points, reducing stock-outs by 60% and overstock by 40%.'
+            },
+            {
+                'id': 'customer-insights',
+                'title': 'Customer Analytics',
+                'icon': '👥',
+                'color': 'linear-gradient(135deg, #ef4444, #dc2626)',
+                'description': 'Deep insights into customer behavior and preferences',
+                'details': f"Identified {len(insights.get('top_customers_list', []))} high-value customers accounting for {sum([c.get('percentage', 0) for c in insights.get('top_customers_list', [])]):.1f}% of revenue." if insights.get('top_customers_list') else 'AI segments customers based on value, frequency, and buying patterns.'
+            },
+            {
+                'id': 'sales-forecasting',
+                'title': 'Sales Forecasting',
+                'icon': '🔮',
+                'color': 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                'description': 'Predicts future sales with high accuracy',
+                'details': 'AI uses historical data, seasonality, and market trends to forecast sales with up to 90% accuracy, helping with planning and resource allocation.'
+            },
+            {
+                'id': 'performance-tracking',
+                'title': 'Performance Analytics',
+                'icon': '📊',
+                'color': 'linear-gradient(135deg, #ec4899, #db2777)',
+                'description': 'Real-time tracking of sales performance',
+                'details': 'AI monitors KPIs, identifies trends, and provides actionable insights to improve sales team performance and productivity.'
+            },
+            {
+                'id': 'anomaly-detection',
+                'title': 'Anomaly Detection',
+                'icon': '🚨',
+                'color': 'linear-gradient(135deg, #f97316, #ea580c)',
+                'description': 'Identifies unusual patterns and potential issues',
+                'details': 'AI detects anomalies in sales data, customer behavior, and market conditions, alerting you to potential problems before they impact business.'
+            },
+            {
+                'id': 'customer-segmentation',
+                'title': 'Customer Segmentation',
+                'icon': '👥',
+                'color': 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                'description': 'Groups customers by behavior and value',
+                'details': f"Identified {len(insights.get('top_customers_list', []))} high-value customers accounting for {sum([c.get('percentage', 0) for c in insights.get('top_customers_list', [])]):.1f}% of revenue." if insights.get('top_customers_list') else 'AI segments customers based on value, frequency, and buying patterns.'
+            }
+        ]
         
-        with metric_col2:
-            if 'total_revenue' in insights:
+        with col1:
+            for i in range(0, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card" onclick="alert('{card['title']}')">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with col2:
+            for i in range(1, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with col3:
+            for i in range(2, len(insight_cards), 3):
+                if i < len(insight_cards):
+                    card = insight_cards[i]
+                    st.markdown(f"""
+                    <div class="insight-card">
+                        <div class="insight-icon" style="background: {card['color']}">
+                            {card['icon']}
+                        </div>
+                        <div class="insight-title">{card['title']}</div>
+                        <div class="insight-desc">{card['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Display selected insight details
+        if st.session_state.selected_insight:
+            selected = next((c for c in insight_cards if c['id'] == st.session_state.selected_insight), None)
+            if selected:
                 st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: var(--topseven-orange); margin: 0 0 8px 0; font-size: 1.5rem;">${insights.get('total_revenue', 0):,.0f}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Total Revenue</p>
+                <div style="background: #1e293b; border: 2px solid #3b82f6; border-radius: 12px; padding: 24px; margin-top: 24px;">
+                    <h3 style="color: {selected['color']}; font-size: 1.5rem; margin-bottom: 12px;">{selected['title']}</h3>
+                    <p style="color: #cbd5e1; font-size: 1.125rem;">{selected['details']}</p>
                 </div>
                 """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: var(--topseven-light-blue); margin: 0 0 8px 0; font-size: 1.5rem;">{len(df)}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Records Loaded</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        with metric_col3:
-            if 'avg_order_value' in insights:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #10b981; margin: 0 0 8px 0; font-size: 1.5rem;">${insights.get('avg_order_value', 0):,.0f}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Avg Order Value</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #8b5cf6; margin: 0 0 8px 0; font-size: 1.5rem;">{len(df.columns)}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Data Columns</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        with metric_col4:
-            if st.session_state.columns and st.session_state.columns['customer']:
-                unique_customers = df[st.session_state.columns['customer']].nunique()
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #ef4444; margin: 0 0 8px 0; font-size: 1.5rem;">{unique_customers}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Unique Customers</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #06b6d4; margin: 0 0 8px 0; font-size: 1.5rem;">{len(df)}</h3>
-                    <p style="color: var(--topseven-gray); margin: 0; font-weight: 500;">Data Rows</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # Performance Analytics Charts - MOVED TO TOP
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #06b6d4; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📈 Performance Analytics</h3>
-            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Time-series analysis and trend visualization</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Create sample time-series data for demonstration
-        if st.session_state.columns and 'date' in st.session_state.columns and st.session_state.columns['date']:
-            date_col = st.session_state.columns['date']
-            if date_col in df.columns:
-                # Find the revenue/amount column
-                revenue_col = None
-                if st.session_state.columns and 'amount' in st.session_state.columns and st.session_state.columns['amount']:
-                    revenue_col = st.session_state.columns['amount']
-                elif 'amount' in df.columns:
-                    revenue_col = 'amount'
-                elif 'revenue' in df.columns:
-                    revenue_col = 'revenue'
-                elif 'value' in df.columns:
-                    revenue_col = 'value'
-                elif 'price' in df.columns:
-                    revenue_col = 'price'
-                else:
-                    # Try to find any numeric column that could be revenue
-                    numeric_cols = df.select_dtypes(include=[np.number]).columns
-                    if len(numeric_cols) > 0:
-                        revenue_col = numeric_cols[0]
                 
-                if revenue_col and revenue_col in df.columns:
-                    # Daily revenue trend
-                    daily_revenue = df.groupby(df[date_col].dt.date)[revenue_col].sum().reset_index()
-                    daily_revenue.columns = ['Date', 'Revenue']
-                    
-                    # Create professional line chart
-                    fig_line = px.line(
-                        daily_revenue,
-                        x='Date',
-                        y='Revenue',
-                        title="Daily Revenue Trend",
-                        color_discrete_sequence=['#3b82f6']
-                    )
-                    fig_line.update_layout(
-                        plot_bgcolor='white',
-                        paper_bgcolor='white',
-                        font_color='#1e293b',
-                        font_size=12,
-                        title_font_size=16,
-                        title_font_color='#1e293b',
-                        xaxis=dict(
-                            gridcolor='#e2e8f0',
-                            linecolor='#1e293b',
-                            linewidth=1,
-                            zeroline=True,
-                            zerolinecolor='#1e293b',
-                            zerolinewidth=2
-                        ),
-                        yaxis=dict(
-                            gridcolor='#e2e8f0',
-                            linecolor='#1e293b',
-                            linewidth=1,
-                            zeroline=True,
-                            zerolinecolor='#1e293b',
-                            zerolinewidth=2
-                        ),
-                        margin=dict(l=0, r=0, t=40, b=40),
-                        showlegend=False
-                    )
-                    fig_line.update_traces(
-                        line=dict(width=3),
-                        fill='tonexty',
-                        fillcolor='rgba(59, 130, 246, 0.1)'
-                    )
-                    st.plotly_chart(fig_line, use_container_width=True)
-                else:
-                    st.info("📊 No numeric column found for revenue analysis. Please ensure your data has a revenue/amount column.")
-        
-        # Sales Performance Metrics
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ef4444; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-            <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🎯 Sales Performance Metrics</h3>
-            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Key performance indicators and business metrics</p>
-        </div>
-        """, unsafe_allow_html=True)
-        perf_col1, perf_col2, perf_col3 = st.columns(3)
-        
-        with perf_col1:
-            if 'total_revenue' in insights and 'total_records' in insights and insights['total_records'] > 0:
-                avg_revenue = insights['total_revenue'] / insights['total_records']
-                st.metric(
-                    "Average Sale Value",
-                    f"${avg_revenue:,.0f}",
-                    delta=f"${avg_revenue * 0.05:,.0f}",
-                    delta_color="normal"
-                )
-            else:
-                st.metric(
-                    "Total Records",
-                    f"{len(df):,}",
-                    delta="0",
-                    delta_color="normal"
-                )
-        
-        with perf_col2:
-            if st.session_state.columns and 'customer' in st.session_state.columns and st.session_state.columns['customer']:
-                customer_col = st.session_state.columns['customer']
-                if customer_col in df.columns:
-                    repeat_customers = df[customer_col].value_counts()
-                    repeat_rate = (repeat_customers > 1).sum() / len(repeat_customers) * 100
-                    st.metric(
-                        "Customer Retention Rate",
-                        f"{repeat_rate:.1f}%",
-                        delta=f"{repeat_rate * 0.02:.1f}%",
-                        delta_color="normal"
-                    )
-        
-        with perf_col3:
-            if 'top_salesmen' in insights and insights['top_salesmen']:
-                top_salesman_revenue = max(insights['top_salesmen'].values())
-                st.metric(
-                    "Top Performer Revenue",
-                    f"${top_salesman_revenue:,.0f}",
-                    delta=f"${top_salesman_revenue * 0.03:,.0f}",
-                    delta_color="normal"
-                )
-        
-        # Top Salesmen
-        if 'top_salesmen' in insights and insights['top_salesmen']:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #3b82f6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">🏆 Top 5 Salesmen</h3>
-                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Revenue performance by individual sales representatives</p>
-            </div>
-            """, unsafe_allow_html=True)
-            top_salesmen_df = pd.DataFrame([
-                {'Salesman': name, 'Revenue': revenue}
-                for name, revenue in insights['top_salesmen'].items()
-            ])
-            st.dataframe(top_salesmen_df, use_container_width=True, hide_index=True)
-            
-            # Professional Chart
-            fig = px.bar(
-                top_salesmen_df,
-                x='Revenue',
-                y='Salesman',
-                orientation='h',
-                title="Top Salesmen by Revenue",
-                color='Revenue',
-                color_continuous_scale='Blues'
-            )
-            fig.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font_color='#1e293b',
-                font_size=12,
-                title_font_size=16,
-                title_font_color='#1e293b',
-                xaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1,
-                    zeroline=True,
-                    zerolinecolor='#1e293b',
-                    zerolinewidth=2
-                ),
-                yaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1
-                ),
-                margin=dict(l=0, r=0, t=40, b=40),
-                showlegend=False
-            )
-            fig.update_traces(
-                marker_line_width=0,
-                marker_line_color='white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Top Customers
-        if 'top_customers_list' in insights:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #10b981; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">👥 Top 5 Customers</h3>
-                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Highest revenue generating customer accounts</p>
-            </div>
-            """, unsafe_allow_html=True)
-            top_customers_df = pd.DataFrame(insights['top_customers_list'])
-            st.dataframe(top_customers_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
-            
-            # Professional Chart
-            fig = px.bar(
-                top_customers_df,
-                x='revenue',
-                y='name',
-                orientation='h',
-                title="Top Customers by Revenue",
-                color='revenue',
-                color_continuous_scale='Greens'
-            )
-            fig.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font_color='#1e293b',
-                font_size=12,
-                title_font_size=16,
-                title_font_color='#1e293b',
-                xaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1,
-                    zeroline=True,
-                    zerolinecolor='#1e293b',
-                    zerolinewidth=2
-                ),
-                yaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1
-                ),
-                margin=dict(l=0, r=0, t=40, b=40),
-                showlegend=False
-            )
-            fig.update_traces(
-                marker_line_width=0,
-                marker_line_color='white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Churn Risk
-        if 'churn_risk' in insights and insights['churn_risk']:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #f59e0b; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">⚠️ Churn Risk Alert</h3>
-                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Customers showing declining engagement patterns</p>
-            </div>
-            """, unsafe_allow_html=True)
-            churn_df = pd.DataFrame(insights['churn_risk'])
-            st.dataframe(churn_df, use_container_width=True, hide_index=True)
-            
-            st.info("💡 **AI Recommendation:** Schedule immediate visits to these customers. Offer special promotions to re-engage them.")
-        
-        # Top Products
-        if 'top_products_list' in insights:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #8b5cf6; margin: 2rem 0 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-                <h3 style="color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 700;">📦 Top 5 Products</h3>
-                <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.95rem;">Best performing products by revenue contribution</p>
-            </div>
-            """, unsafe_allow_html=True)
-            top_products_df = pd.DataFrame(insights['top_products_list'])
-            st.dataframe(top_products_df[['name', 'revenue', 'percentage']], use_container_width=True, hide_index=True)
-            
-            # Professional Chart
-            fig = px.bar(
-                top_products_df,
-                x='revenue',
-                y='name',
-                orientation='h',
-                title="Top Products by Revenue",
-                color='revenue',
-                color_continuous_scale='Purples'
-            )
-            fig.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font_color='#1e293b',
-                font_size=12,
-                title_font_size=16,
-                title_font_color='#1e293b',
-                xaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1,
-                    zeroline=True,
-                    zerolinecolor='#1e293b',
-                    zerolinewidth=2
-                ),
-                yaxis=dict(
-                    gridcolor='#e2e8f0',
-                    linecolor='#1e293b',
-                    linewidth=1
-                ),
-                margin=dict(l=0, r=0, t=40, b=40),
-                showlegend=False
-            )
-            fig.update_traces(
-                marker_line_width=0,
-                marker_line_color='white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        
-        # Export functionality
-        with st.expander("📥 Export Data"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "📊 Download Data as CSV",
-                    csv,
-                    f"sales_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                    "text/csv"
-                )
-            
-            with col2:
-                if st.session_state.chat_history:
-                    chat_text = "\n\n".join([
-                        f"{msg['role'].upper()}: {msg['content']}"
-                        for msg in st.session_state.chat_history
-                    ])
-                    st.download_button(
-                        "💬 Download Chat History",
-                        chat_text,
-                        f"chat_history_{datetime.now().strftime('%Y%m%d')}.txt",
-                        "text/plain"
-                    )
+                if st.button("Close Details"):
+                    st.session_state.selected_insight = None
+                    st.rerun()
 
 # Professional TopSeven Footer
 st.markdown("---")
