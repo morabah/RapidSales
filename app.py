@@ -144,6 +144,15 @@ def inject_css():
       .stPlotlyChart { background: var(--rs-surface) !important; border-radius: 12px !important; }
       .main .block-container { background: transparent !important; }
 
+      /* AI Insight card UX */
+      .insight-card { display: grid; grid-template-columns: 56px 1fr; gap: 12px; padding: 14px; border-radius: 12px; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; min-height: 140px; }
+      .insight-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.25); border-color: var(--rs-primary) !important; }
+      .insight-icon { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+      .insight-title { grid-column: 2 / -1; font-weight: 700; margin-bottom: 4px; }
+      .insight-desc { grid-column: 2 / -1; color: var(--rs-text-dim); font-size: .95rem; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: normal; overflow-wrap: anywhere; }
+      .insight-actions { grid-column: 2 / -1; margin-top: 8px; }
+      .insight-actions button { width: 100%; }
+
       /* Header tweaks for dark */
       .professional-header { background: var(--rs-surface) !important; border-bottom: 1px solid var(--rs-border) !important; }
       .professional-header * { color: var(--rs-text) !important; }
@@ -1222,6 +1231,9 @@ with tab3:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    if st.button("View details", key=f"view_{card['id']}_t3_col1"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
         
         with col2:
             for i in range(1, len(insight_cards), 3):
@@ -1236,6 +1248,9 @@ with tab3:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    if st.button("View details", key=f"view_{card['id']}_t3_col2"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
         
         with col3:
             for i in range(2, len(insight_cards), 3):
@@ -1250,6 +1265,9 @@ with tab3:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    if st.button("View details", key=f"view_{card['id']}_t3_col3"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
         
         # Display selected insight details
         if st.session_state.selected_insight:
@@ -1262,7 +1280,7 @@ with tab3:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button("Close Details"):
+                if st.button("Close Details", key="close_details_t3"):
                     st.session_state.selected_insight = None
                     st.rerun()
 
@@ -1359,7 +1377,7 @@ with tab4:
                 if i < len(insight_cards):
                     card = insight_cards[i]
                     st.markdown(f"""
-                    <div class="insight-card" onclick="alert('{card['title']}')">
+                    <div class="insight-card" >
                         <div class="insight-icon" style="background: {card['color']}">
                             {card['icon']}
                         </div>
@@ -1367,7 +1385,10 @@ with tab4:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
-        
+                    if st.button("View details", key=f"view_{card['id']}_t4_col1"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
+
         with col2:
             for i in range(1, len(insight_cards), 3):
                 if i < len(insight_cards):
@@ -1381,6 +1402,9 @@ with tab4:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    if st.button("View details", key=f"view_{card['id']}_t4_col2"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
         
         with col3:
             for i in range(2, len(insight_cards), 3):
@@ -1395,6 +1419,9 @@ with tab4:
                         <div class="insight-desc">{card['description']}</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    if st.button("View details", key=f"view_{card['id']}_t4_col3"):
+                        st.session_state.selected_insight = card['id']
+                        st.rerun()
         
         # Display selected insight details
         if st.session_state.selected_insight:
@@ -1407,7 +1434,7 @@ with tab4:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button("Close Details"):
+                if st.button("Close Details", key="close_details_t4"):
                     st.session_state.selected_insight = None
                     st.rerun()
 
