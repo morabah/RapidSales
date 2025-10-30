@@ -568,7 +568,7 @@ def create_data_table(df, question, insights):
     df = df.assign(__amt=vals)
 
     # 1) Salesman questions
-    if any(w in ql for w in ['salesman', 'sales rep', 'rep', 'best salesman', 'top salesman']):
+    if any(w in ql for w in ['salesman', 'salesmen', 'sales rep', 'rep', 'best salesman', 'top salesman']):
         if sm and sm in df.columns:
             out = df.groupby(sm, dropna=False)['__amt'].sum().reset_index()
             out = out.sort_values('__amt', ascending=False).rename(columns={sm: 'Salesman', '__amt': 'Revenue'})
@@ -636,6 +636,47 @@ def create_data_table(df, question, insights):
 
     return None
 
+def get_chart_spec(question: str, table: pd.DataFrame):
+    if table is None or table.empty:
+        return None
+    ql = (question or "").lower()
+    cols = set(table.columns)
+    if {'Salesman', 'Revenue'}.issubset(cols) and len(table) >= 2:
+        return {'type': 'bar', 'orientation': 'h', 'x': 'Revenue', 'y': 'Salesman', 'title': 'Top Salesmen by Revenue'}
+    if {'Product', 'Revenue'}.issubset(cols) and len(table) >= 2:
+        return {'type': 'bar', 'orientation': 'h', 'x': 'Revenue', 'y': 'Product', 'title': 'Top Products by Revenue'}
+    if {'Customer', 'Revenue'}.issubset(cols) and len(table) >= 2 and not any(w in ql for w in ['declin', 'at-risk', 'at risk', 'churn', 'losing', 'drop', 'decreas']):
+        return {'type': 'bar', 'orientation': 'h', 'x': 'Revenue', 'y': 'Customer', 'title': 'Top Customers by Revenue'}
+    if {'Customer', 'Prev 3M', 'Last 3M'}.issubset(cols) and len(table) >= 2:
+        return {'type': 'bar_group', 'x': 'Customer', 'series': ['Prev 3M', 'Last 3M'], 'title': 'Customer Spend: Prev 3M vs Last 3M'}
+    if {'Month', 'Revenue'}.issubset(cols) and len(table) >= 2:
+        return {'type': 'line', 'x': 'Month', 'y': 'Revenue', 'title': 'Monthly Revenue Trend'}
+    return None
+
+def build_chart_from_spec(table: pd.DataFrame, spec: dict):
+    if not spec:
+        return None
+    t = spec.get('type')
+    if t == 'bar':
+        fig = px.bar(table, x=spec.get('x'), y=spec.get('y'), orientation=spec.get('orientation', 'v'), title=spec.get('title'))
+        fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=360, showlegend=False)
+        fig.update_traces(marker_line_width=0, marker_line_color='white')
+        return fig
+    if t == 'bar_group':
+        x = spec.get('x')
+        series = spec.get('series', [])
+        df_long = table.melt(id_vars=[x], value_vars=series, var_name='Metric', value_name='Value')
+        fig = px.bar(df_long, x=x, y='Value', color='Metric', barmode='group', title=spec.get('title'))
+        fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=380)
+        fig.update_traces(marker_line_width=0)
+        return fig
+    if t == 'line':
+        fig = px.line(table, x=spec.get('x'), y=spec.get('y'), title=spec.get('title'))
+        fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=360, hovermode='x unified', showlegend=False)
+        fig.update_traces(line=dict(width=2), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.15)')
+        return fig
+    return None
+
 def query_ai(question, data_summary, df=None, insights=None):
     """
     If Gemini is available, ask it for a polished write-up.
@@ -659,21 +700,15 @@ def query_ai(question, data_summary, df=None, insights=None):
             prompt = f"""
 You are a senior BI analyst. Use ONLY the uploaded Excel data (RAG) in the context below.
 
-
 DATA SUMMARY (JSON):
-
 {json_data}
 
-
 BUSINESS QUESTION:
-
 {question}
-
 
 RULES:
 - Use the detected column mapping in the data summary if present (e.g., amount, date, salesman, customer, product). Do not invent columns. If a needed field is missing, state it in one short sentence.
 - Apply any timeframe in the question; otherwise use the full available period.
-
 
 OUTPUT FORMAT (Markdown only, no preamble or disclaimers):
 ## Executive Summary
@@ -686,6 +721,9 @@ A compact, relevant table (5–10 rows) tailored to the question. Only include c
 - Up to 3 bullets, one sentence each.
 - Each must include a concrete metric change and timeframe (e.g., “X leads with $Y (Z% of total) in the last 3 months”).
 - No generic or obvious statements.
+
+## Chart
+One sentence naming the most decision-relevant chart (type and axes) for this analysis.
 
 ## Recommended Actions
 - Exactly 2 bullets, one sentence each.
@@ -700,15 +738,28 @@ Return only the Markdown above.
         table = create_data_table(df, question, insights)
         if table is not None and not table.empty:
             top_row = table.iloc[0].to_dict()
-            return (
-                "## Executive Summary\n"
-                "- Answered locally from the uploaded sheet (no external AI).\n\n"
-                "## Analysis\n"
-                f"- Top row: `{top_row}`\n\n"
-                "## Recommended Actions\n"
-                "1. Investigate why winners win (mix, price, route).\n"
-                "2. Coach bottom performers using items and customers from the top group."
-            )
+            parts = []
+            parts.append("## Executive Summary")
+            if 'Revenue' in top_row:
+                parts.append(f"Top result is ${float(top_row['Revenue']):,.2f}.")
+            else:
+                parts.append("Analysis completed from the uploaded sheet.")
+            parts.append("")
+            parts.append("## Analysis")
+            parts.append("See table below.")
+            parts.append("")
+            parts.append("## Key Insights")
+            if 'Revenue' in top_row:
+                parts.append(f"- Leading value: ${float(top_row['Revenue']):,.2f}.")
+            parts.append(f"- Rows analyzed: {len(table)}.")
+            parts.append("")
+            parts.append("## Chart")
+            parts.append("A decision-relevant chart is displayed below.")
+            parts.append("")
+            parts.append("## Recommended Actions")
+            parts.append("- Investigate drivers behind the top result.")
+            parts.append("- Apply winning patterns to weaker areas.")
+            return "\n".join(parts)
         return "I couldn’t find the needed columns yet. Please check that amount/value and date/salesman exist."
 
     except Exception as e:
@@ -888,6 +939,11 @@ with tab2:
                     if content.get("table"):
                         table_df = pd.DataFrame(content["table"])
                         st.dataframe(table_df, use_container_width=True, hide_index=True)
+                    if content.get("chart") and content.get("table"):
+                        table_df = pd.DataFrame(content["table"])
+                        fig = build_chart_from_spec(table_df, content.get("chart"))
+                        if fig is not None:
+                            st.plotly_chart(fig, use_container_width=True, key="plot_top_salesmen_t3")
                 else:
                     # Old format (just text)
                     st.markdown('<div class="chat-message ai-message">🤖 <strong>AI</strong></div>', unsafe_allow_html=True)
@@ -908,9 +964,11 @@ with tab2:
                     response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
                     data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
                 
+                chart_spec = get_chart_spec(query, data_table) if data_table is not None else None
                 response_data = {
                     "text": response,
-                    "table": data_table.to_dict('records') if data_table is not None else None
+                    "table": data_table.to_dict('records') if data_table is not None else None,
+                    "chart": chart_spec
                 }
                 st.session_state.chat_history.append({"role": "assistant", "content": response_data})
                 st.rerun()
@@ -926,9 +984,11 @@ with tab2:
                     response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
                     data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
                 
+                chart_spec = get_chart_spec(query, data_table) if data_table is not None else None
                 response_data = {
                     "text": response,
-                    "table": data_table.to_dict('records') if data_table is not None else None
+                    "table": data_table.to_dict('records') if data_table is not None else None,
+                    "chart": chart_spec
                 }
                 st.session_state.chat_history.append({"role": "assistant", "content": response_data})
                 st.rerun()
@@ -944,9 +1004,11 @@ with tab2:
                     response = query_ai(query, data_summary, st.session_state.data, st.session_state.insights)
                     data_table = create_data_table(st.session_state.data, query, st.session_state.insights)
                 
+                chart_spec = get_chart_spec(query, data_table) if data_table is not None else None
                 response_data = {
                     "text": response,
-                    "table": data_table.to_dict('records') if data_table is not None else None
+                    "table": data_table.to_dict('records') if data_table is not None else None,
+                    "chart": chart_spec
                 }
                 st.session_state.chat_history.append({"role": "assistant", "content": response_data})
                 st.rerun()
@@ -975,10 +1037,11 @@ with tab2:
                 # Create data table if relevant
                 data_table = create_data_table(st.session_state.data, user_input, st.session_state.insights)
             
-            # Store response with table info
+            chart_spec = get_chart_spec(user_input, data_table) if data_table is not None else None
             response_data = {
                 "text": response,
-                "table": data_table.to_dict('records') if data_table is not None else None
+                "table": data_table.to_dict('records') if data_table is not None else None,
+                "chart": chart_spec
             }
             
             st.session_state.chat_history.append({"role": "assistant", "content": response_data})
@@ -1119,7 +1182,7 @@ with tab3:
                         fill='tonexty',
                         fillcolor='rgba(37, 99, 235, 0.2)'
                     )
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    st.plotly_chart(fig_line, use_container_width=True, key="plot_daily_revenue_line")
                 else:
                     st.info("📊 No numeric column found for revenue analysis. Please ensure your data has a revenue/amount column.")
         
@@ -1199,7 +1262,7 @@ with tab3:
                 marker_line_width=0,
                 marker_line_color='white'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="plot_top_salesmen_bar")
         
         # Top Customers
         if 'top_customers_list' in insights:
@@ -1230,7 +1293,7 @@ with tab3:
                 marker_line_width=0,
                 marker_line_color='white'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="plot_top_customers_bar")
         
         # Churn Risk
         if 'churn_risk' in insights and insights['churn_risk']:
@@ -1274,7 +1337,7 @@ with tab3:
                 marker_line_width=0,
                 marker_line_color='white'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="plot_top_products_bar")
         
         
         # Export functionality
