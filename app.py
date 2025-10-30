@@ -656,51 +656,43 @@ def query_ai(question, data_summary, df=None, insights=None):
                 json_data = json.dumps(safe_summary, indent=2, default=str)
 
             model = genai.GenerativeModel('gemini-2.5-flash')
-            prompt = f"""You are a professional business intelligence analyst for Rapid Sales, a TopSeven enterprise solution.
+            prompt = f"""
+You are a senior BI analyst. Use ONLY the uploaded Excel data (RAG) in the context below.
 
-KNOWLEDGE BASE (RAG - Retrieval Augmented Generation):
-The uploaded Excel file serves as your complete knowledge base. All analysis must be grounded in this data.
 
-SALES DATA CONTEXT:
+DATA SUMMARY (JSON):
+
 {json_data}
 
-BUSINESS QUERY: {question}
 
-PROFESSIONAL RESPONSE GUIDELINES:
-1. **Tone**: Formal business communication - precise, clear, executive-ready
-2. **Data Grounding**: Base all insights strictly on the provided Excel data (RAG approach)
-3. **Format**: Use professional markdown tables for all data presentations
-4. **Structure**: 
-   - Executive Summary (2-3 sentences)
-   - Data Analysis (markdown table format)
-   - Key Insights (bullet points)
-   - Recommended Actions (numbered list)
+BUSINESS QUESTION:
 
-5. **Table Format**: 
-   | Metric | Value | Performance |
-   |--------|-------|-------------|
-   Use proper alignment and clear headers
+{question}
 
-6. **Precision**: Include specific numbers, percentages, and trends
-7. **Clarity**: Avoid jargon; use clear business terminology
-8. **Actionability**: Every insight must have a recommended action
 
-RESPONSE STRUCTURE:
+RULES:
+- Use the detected column mapping in the data summary if present (e.g., amount, date, salesman, customer, product). Do not invent columns. If a needed field is missing, state it in one short sentence.
+- Apply any timeframe in the question; otherwise use the full available period.
+
+
+OUTPUT FORMAT (Markdown only, no preamble or disclaimers):
 ## Executive Summary
-[Brief 2-3 sentence overview]
+One sentence, direct, with specific numbers.
 
 ## Analysis
-[Markdown table with relevant data]
+A compact, relevant table (5–10 rows) tailored to the question. Only include columns that matter for the analysis (no generic placeholders). Format money with thousands separators and 2 decimals; percents with 1 decimal.
 
 ## Key Insights
-- [Insight 1]
-- [Insight 2]
+- Up to 3 bullets, one sentence each.
+- Each must include a concrete metric change and timeframe (e.g., “X leads with $Y (Z% of total) in the last 3 months”).
+- No generic or obvious statements.
 
 ## Recommended Actions
-1. [Action 1]
-2. [Action 2]
+- Exactly 2 bullets, one sentence each.
+- Imperative, specific, and measurable (tie directly to the insights; keep it to the point).
 
-Generate response:"""
+Return only the Markdown above.
+"""
             response = model.generate_content(prompt)
             return response.text
 
