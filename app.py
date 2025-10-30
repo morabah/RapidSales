@@ -8,6 +8,7 @@ import json
 import numpy as np
 from datetime import datetime
 import re
+import difflib
 from dateutil.relativedelta import relativedelta
 px.defaults.color_discrete_sequence = ["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#A855F7", "#06B6D4"]
 _rapid_layout = go.Layout(
@@ -281,6 +282,49 @@ def find_column(df, keywords):
             lc = lower[c]
             if k in lc and lc not in blocklist:
                 return c
+    try:
+        numeric_kw = {"amount", "sales", "revenue", "total", "value", "quantity", "qty", "units", "price", "unit_price", "rate", "net", "gross", "subtotal"}
+        want_date = any(("date" in kw.lower()) or ("time" in kw.lower()) for kw in keywords)
+        want_numeric = any(any(t in kw.lower() for t in numeric_kw) for kw in keywords)
+        if want_date:
+            cand = []
+            for c in cols:
+                try:
+                    s = pd.to_datetime(df[c], errors='coerce')
+                    if s.notna().mean() > 0.6:
+                        cand.append(c)
+                except Exception:
+                    pass
+            if not cand:
+                cand = cols
+        elif want_numeric:
+            cand = []
+            for c in cols:
+                try:
+                    s = pd.to_numeric(df[c], errors='coerce')
+                    if s.notna().sum() > 0:
+                        cand.append(c)
+                except Exception:
+                    pass
+            if not cand:
+                cand = cols
+        else:
+            cand = [c for c in cols if df[c].dtype == 'object'] or cols
+
+        def _norm(s):
+            return re.sub(r'[^a-z0-9]+', '', str(s).lower())
+
+        best = (None, 0.0)
+        for kw in keywords:
+            nk = _norm(kw)
+            for c in cand:
+                sc = difflib.SequenceMatcher(None, nk, _norm(c)).ratio()
+                if sc > best[1]:
+                    best = (c, sc)
+        if best[0] and best[1] >= 0.72:
+            return best[0]
+    except Exception:
+        pass
     return None
 
 @st.cache_data(ttl=600)
@@ -291,18 +335,31 @@ def calculate_insights(df):
     
     # Auto-detect columns
     columns = {
-        'customer': find_column(df, ['customer', 'client', 'account']),
-        'amount': find_column(df, ['amount', 'sales', 'revenue', 'total', 'value']),
-        'salesman': find_column(df, ['salesman', 'sales_person', 'sales man', 'rep', 'agent', 'sales rep']),
-        'product': find_column(df, ['product', 'item', 'sku']),
-        'date': find_column(df, ['date', 'transaction_date', 'order_date', 'visitdate', 'invoicedate']),
-        'quantity': find_column(df, ['quantity', 'qty', 'units']),
-        'price': find_column(df, ['price', 'unit_price', 'rate'])
+        'customer': find_column(df, ['customer', 'client', 'account', 'customer_name', 'client_name', 'account_name', 'buyer', 'shop', 'store', 'outlet', 'party', 'company']),
+        'amount': find_column(df, ['amount', 'total', 'value', 'net', 'net_amount', 'gross_amount', 'grand_total', 'invoice_amount', 'sales_amount', 'sales_value', 'net sales', 'line total', 'subtotal', 'total_value', 'revenue', 'sale']),
+        'salesman': find_column(df, ['salesman', 'sales_person', 'salesperson', 'sales man', 'rep', 'agent', 'sales rep', 'representative', 'sales representative', 'sales executive', 'seller', 'owner', 'employee', 'staff', 'rep name', 'agent name', 'salesman name', 'user']),
+        'product': find_column(df, ['product', 'product_name', 'item', 'item_name', 'sku', 'item code', 'product code', 'material', 'material name', 'article', 'description', 'itemcode', 'code']),
+        'date': find_column(df, ['date', 'transaction_date', 'order_date', 'visitdate', 'invoice_date', 'invoicedate', 'doc_date', 'posting date', 'created_at', 'timestamp', 'sale date', 'visit date']),
+        'quantity': find_column(df, ['quantity', 'qty', 'units', 'unit', 'pcs']),
+        'price': find_column(df, ['price', 'unit_price', 'rate', 'unit rate', 'unitprice', 'selling_price', 'list_price'])
     }
 
     # Parse dates early
     if columns['date'] and columns['date'] in df.columns:
         df[columns['date']] = pd.to_datetime(df[columns['date']], errors='coerce')
+    if not columns['date']:
+        best_col, best_ratio = None, 0.0
+        for c in df.columns:
+            try:
+                s = pd.to_datetime(df[c], errors='coerce')
+                r = float(s.notna().mean())
+                if r > 0.7 and r > best_ratio:
+                    best_col, best_ratio = c, r
+            except Exception:
+                pass
+        if best_col:
+            columns['date'] = best_col
+            df[best_col] = pd.to_datetime(df[best_col], errors='coerce')
 
     # Derive amount if missing but qty & price exist
     if not columns['amount'] and columns['quantity'] and columns['price']:
@@ -310,6 +367,21 @@ def calculate_insights(df):
         if q in df.columns and p in df.columns:
             df['_AMOUNT_'] = pd.to_numeric(df[q], errors='coerce').fillna(0) * pd.to_numeric(df[p], errors='coerce').fillna(0)
             columns['amount'] = '_AMOUNT_'
+    if not columns['amount']:
+        exclude = {c for c in df.columns if any(t in c.lower() for t in ['qty', 'quantity', 'units', 'unit', 'pcs', 'price', 'unit_price', 'rate', 'tax', 'vat', 'discount', 'cost', 'cogs'])}
+        best_col, best_sum = None, -1.0
+        for c in df.columns:
+            if c in exclude:
+                continue
+            try:
+                s = pd.to_numeric(df[c], errors='coerce').fillna(0)
+                total = float(s.abs().sum())
+                if total > best_sum and s.notna().sum() > 0:
+                    best_col, best_sum = c, total
+            except Exception:
+                pass
+        if best_col:
+            columns['amount'] = best_col
     
     st.session_state.columns = columns
     
@@ -320,52 +392,67 @@ def calculate_insights(df):
     
     # Calculate revenue metrics
     amount_col = columns['amount']
+    vals = None
     if amount_col and amount_col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[amount_col]):
-            insights['total_revenue'] = float(df[amount_col].sum())
-            insights['avg_order_value'] = float(df[amount_col].mean())
-            insights['min_order'] = float(df[amount_col].min())
-            insights['max_order'] = float(df[amount_col].max())
+        ser_amt = df[amount_col]
+        if ser_amt.dtype == 'object':
+            cleaned = ser_amt.astype(str).str.replace(r'[^0-9\-\.]+', '', regex=True)
+            vals = pd.to_numeric(cleaned, errors='coerce').fillna(0)
+        else:
+            vals = pd.to_numeric(ser_amt, errors='coerce').fillna(0)
+        insights['total_revenue'] = float(vals.sum())
+        insights['avg_order_value'] = float(vals.mean())
+        insights['min_order'] = float(vals.min())
+        insights['max_order'] = float(vals.max())
     
     # Top salesmen
     salesman_col = columns['salesman']
-    if salesman_col and salesman_col in df.columns and amount_col:
-        if pd.api.types.is_numeric_dtype(df[amount_col]):
-            top_salesmen = df.groupby(salesman_col)[amount_col].sum().sort_values(ascending=False)
-            insights['top_salesmen'] = top_salesmen.head(5).to_dict()
+    if salesman_col and salesman_col in df.columns and amount_col and vals is not None:
+        tmp = pd.DataFrame({
+            'key': df[salesman_col],
+            '__amt': vals
+        })
+        top_salesmen = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
+        insights['top_salesmen'] = top_salesmen.head(5).to_dict()
     
     # Top customers
     customer_col = columns['customer']
-    if customer_col and customer_col in df.columns and amount_col:
-        if pd.api.types.is_numeric_dtype(df[amount_col]):
-            top_customers = df.groupby(customer_col)[amount_col].sum().sort_values(ascending=False)
-            insights['top_customers'] = top_customers.head(5).to_dict()
-            # Calculate percentages
-            total_rev = insights.get('total_revenue', 1)
-            insights['top_customers_list'] = [
-                {
-                    'name': name,
-                    'revenue': float(revenue),
-                    'percentage': round((revenue / total_rev) * 100, 1)
-                }
-                for name, revenue in top_customers.head(5).items()
-            ]
+    if customer_col and customer_col in df.columns and amount_col and vals is not None:
+        tmp = pd.DataFrame({
+            'key': df[customer_col],
+            '__amt': vals
+        })
+        top_customers = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
+        insights['top_customers'] = top_customers.head(5).to_dict()
+        # Calculate percentages
+        total_rev = float(insights.get('total_revenue', 0)) or 1.0
+        insights['top_customers_list'] = [
+            {
+                'name': name,
+                'revenue': float(revenue),
+                'percentage': round((float(revenue) / total_rev) * 100, 1)
+            }
+            for name, revenue in top_customers.head(5).items()
+        ]
     
     # Top products
     product_col = columns['product']
-    if product_col and product_col in df.columns and amount_col:
-        if pd.api.types.is_numeric_dtype(df[amount_col]):
-            top_products = df.groupby(product_col)[amount_col].sum().sort_values(ascending=False)
-            insights['top_products'] = top_products.head(5).to_dict()
-            total_rev = insights.get('total_revenue', 1)
-            insights['top_products_list'] = [
-                {
-                    'name': name,
-                    'revenue': float(revenue),
-                    'percentage': round((revenue / total_rev) * 100, 1)
-                }
-                for name, revenue in top_products.head(5).items()
-            ]
+    if product_col and product_col in df.columns and amount_col and vals is not None:
+        tmp = pd.DataFrame({
+            'key': df[product_col],
+            '__amt': vals
+        })
+        top_products = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
+        insights['top_products'] = top_products.head(5).to_dict()
+        total_rev = float(insights.get('total_revenue', 0)) or 1.0
+        insights['top_products_list'] = [
+            {
+                'name': name,
+                'revenue': float(revenue),
+                'percentage': round((float(revenue) / total_rev) * 100, 1)
+            }
+            for name, revenue in top_products.head(5).items()
+        ]
     
     # Churn risk analysis
     if customer_col and customer_col in df.columns:
@@ -411,6 +498,7 @@ def prepare_data_summary(df, insights):
             sample_df[col] = sample_df[col].astype(str)
     
     summary['sample_data'] = sample_df.to_dict('records')
+    summary['column_mapping'] = insights.get('columns', {})
     
     # Add insights
     if 'total_revenue' in insights:
@@ -447,12 +535,36 @@ def create_data_table(df, question, insights):
     if per:
         df = filter_by_period(df, dt, per)
 
-    # If amount is missing after all, bail
+    # If amount is missing, try to derive from qty*price if available
     if not amt or amt not in df.columns:
-        return None
+        q = cols.get('quantity')
+        p = cols.get('price')
+        if q and p and q in df.columns and p in df.columns:
+            qv = pd.to_numeric(df[q], errors='coerce').fillna(0)
+            pv = pd.to_numeric(df[p], errors='coerce').fillna(0)
+            df = df.assign(__amt=(qv * pv))
+            amt = '__amt'
+        else:
+            num_cols = [c for c in df.columns if pd.to_numeric(df[c], errors='coerce').notna().sum() > 0]
+            if num_cols:
+                best_col, best_sum = None, -1.0
+                for c in num_cols:
+                    s = pd.to_numeric(df[c], errors='coerce').fillna(0)
+                    total = float(s.abs().sum())
+                    if total > best_sum:
+                        best_col, best_sum = c, total
+                if best_col:
+                    amt = best_col
+            if not amt or amt not in df.columns:
+                return None
 
     # Normalize amount to numeric
-    vals = pd.to_numeric(df[amt], errors='coerce').fillna(0)
+    ser_amt = df[amt]
+    if ser_amt.dtype == 'object':
+        cleaned = ser_amt.astype(str).str.replace(r'[^0-9\-\.]+', '', regex=True)
+        vals = pd.to_numeric(cleaned, errors='coerce').fillna(0)
+    else:
+        vals = pd.to_numeric(ser_amt, errors='coerce').fillna(0)
     df = df.assign(__amt=vals)
 
     # 1) Salesman questions
@@ -473,6 +585,40 @@ def create_data_table(df, question, insights):
 
     # 3) Customer questions
     cust = cols.get('customer')
+    if any(w in ql for w in ['declin', 'at-risk', 'at risk', 'churn', 'losing', 'drop', 'decreas']) and cust and cust in df.columns and dt and dt in df.columns:
+        dts = pd.to_datetime(df[dt], errors='coerce')
+        tmp = pd.DataFrame({'cust': df[cust], 'month': dts.dt.to_period('M').astype(str), '__amt': vals})
+        roll = tmp.groupby(['cust', 'month'])['__amt'].sum().reset_index()
+        roll['month_dt'] = pd.to_datetime(roll['month'] + '-01', errors='coerce')
+        last_months = sorted(roll['month_dt'].dropna().unique())
+        if len(last_months) < 4:
+            agg = tmp.groupby('cust')['__amt'].sum().reset_index().rename(columns={'cust': 'Customer', '__amt': 'Revenue'})
+            out = agg.sort_values('Revenue').head(10)
+            out['Revenue'] = out['Revenue'].round(2)
+            return out
+        last3 = last_months[-3:]
+        prev3 = last_months[-6:-3]
+        msk_last = roll['month_dt'].isin(last3)
+        msk_prev = roll['month_dt'].isin(prev3)
+        last_df = roll[msk_last].groupby('cust')['__amt'].sum()
+        prev_df = roll[msk_prev].groupby('cust')['__amt'].sum()
+        idx = set(last_df.index) | set(prev_df.index)
+        records = []
+        for ckey in idx:
+            L = float(last_df.get(ckey, 0.0))
+            P = float(prev_df.get(ckey, 0.0))
+            if P > 0 and L < P:
+                change = L - P
+                pct = (change / P) * 100.0
+                records.append({'Customer': ckey, 'Prev 3M': round(P, 2), 'Last 3M': round(L, 2), 'Change': round(change, 2), 'Change %': round(pct, 1)})
+        if records:
+            out = pd.DataFrame(records).sort_values(['Change %', 'Change']).head(10)
+            return out
+        recent = roll[msk_last].groupby('cust')['__amt'].sum().reset_index().rename(columns={'cust': 'Customer', '__amt': 'Last 3M'})
+        out = recent.sort_values('Last 3M').head(10)
+        out['Last 3M'] = out['Last 3M'].round(2)
+        return out
+
     if any(w in ql for w in ['customer', 'client', 'account', 'top customer', 'best customer']) and cust and cust in df.columns:
         out = df.groupby(cust, dropna=False)['__amt'].sum().reset_index()
         out = out.sort_values('__amt', ascending=False).rename(columns={cust: 'Customer', '__amt': 'Revenue'})
