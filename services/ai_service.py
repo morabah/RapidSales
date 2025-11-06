@@ -113,7 +113,8 @@ class AIService:
                                 executor=observability.get("executor"),
                                 peak_period=observability.get("peak_period"),
                                 peak_value=observability.get("peak_value"),
-                                period_bounds=observability.get("period_bounds")
+                                period_bounds=observability.get("period_bounds"),
+                                model_used=observability.get("model_used")
                             )
                             
                             # Add CSV/Copy functionality if it's a table result
@@ -194,7 +195,8 @@ class AIService:
         executor: str | None = None,
         peak_period: str | None = None,
         peak_value: float | None = None,
-        period_bounds: tuple[str, str] | None = None
+        period_bounds: tuple[str, str] | None = None,
+        model_used: str | None = None
     ) -> str:
         """
         Format SQL result DataFrame into readable markdown.
@@ -210,6 +212,7 @@ class AIService:
             peak_period: Optional period identifier flagged as the peak (timeseries metadata)
             peak_value: Optional numeric value associated with peak_period
             period_bounds: Optional tuple of (start, end_exclusive) bounds
+            model_used: Optional Gemini model name used for LLM queries
         
         Returns:
             Formatted markdown string
@@ -294,6 +297,12 @@ class AIService:
         # Add execution details
         if executor:
             output.append(f"*Executor used: {executor}*\n\n")
+        # Add model information
+        if model_used:
+            if model_used == "heuristic":
+                output.append(f"*Model: Heuristic (deterministic)*\n\n")
+            else:
+                output.append(f"*Model used: {model_used}*\n\n")
         # Add SQL provenance (for debugging - can be toggled in UI)
         output.append(f"*SQL executed: `{sql}`*\n\n")
         

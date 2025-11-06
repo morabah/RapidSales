@@ -950,6 +950,8 @@ Return JSON only with either "sql" or "clarify" key:
                 if not isinstance(plan, dict):
                     # If LLM returned a string, wrap it
                     return {"clarify": f"LLM returned non-dict response: {type(plan).__name__}"}
+                # Add model info to response
+                plan["model_used"] = model_name
                 return plan
             except json.JSONDecodeError as e:
                 # If JSON parsing fails, return clarify
@@ -1308,7 +1310,9 @@ Return JSON only with either "sql" or "clarify" key:
             "validator_pass": None,
             "executor": None,
             "confidence": None,
-            "schema_valid": True
+            "schema_valid": True,
+            "model_used": None,  # Track which Gemini model was used
+            "model_index": self._current_model_index  # Track model selection index
         }
         
         def _finalize():
@@ -1400,6 +1404,7 @@ Return JSON only with either "sql" or "clarify" key:
                 obs["plan"] = plan_clean
                 obs["requirements"] = requirements
                 obs["repairs_applied"] = repairs_applied
+                obs["model_used"] = "heuristic"  # Deterministic plans use heuristics, not LLM
                 
                 print(f"[SQLGenerationService] Query plan detected: {intent}, confidence: {confidence:.2f}")
                 
@@ -1720,6 +1725,10 @@ Return JSON only with either "sql" or "clarify" key:
             
             # Generate SQL
             plan = self.generate_sql(question, schema)
+            
+            # Capture model used from generate_sql result
+            if isinstance(plan, dict) and "model_used" in plan:
+                obs["model_used"] = plan["model_used"]
             
             # Ensure plan is a dictionary
             if not isinstance(plan, dict):
