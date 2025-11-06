@@ -49,6 +49,15 @@ class SQLGenerationService:
         self.llm_failure_count = 0
         self.llm_auto_fallback_enabled = False
         
+        # Quota/rate limit tracking
+        self._quota_tracking = {
+            'daily_requests': 0,
+            'last_reset_date': None,
+            'quota_errors': 0,
+            'model_usage': {}  # Track usage per model
+        }
+        self._current_model_index = 0  # Track which model we're using
+        
         # Memory caps
         self.MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB
         self.MAX_DISPLAY_ROWS = 1000  # Cap before rendering
@@ -490,6 +499,89 @@ class SQLGenerationService:
         }
         return plan
     
+    def _heuristic_top_performers(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
+        """Heuristic for queries like "Who are the top performers last quarter"."""
+        tokens = self._tokenize_text(question)
+        if not tokens:
+            return None
+        # Require fuzzy match for "top" and a performer keyword
+        if not self._contains_fuzzy_word(tokens, "top", threshold=0.75):
+            return None
+        performer_keywords = [
+            "performer", "performers", "seller", "sellers", "sales", "salesman",
+            "salesmen", "team", "rep", "reps", "representative"
+        ]
+        if not self._contains_any_fuzzy_word(tokens, performer_keywords, threshold=0.7):
+            return None
+        # Require last quarter phrasing
+        if not (
+            self._contains_fuzzy_phrase(tokens, ["last", "quarter"], threshold=0.7) or
+            self._contains_fuzzy_phrase(tokens, ["last", "completed", "quarter"], threshold=0.7)
+        ):
+            return None
+        if not columns.get('salesman'):
+            return None
+        date_col = columns.get('date', 'VISITDATE')
+        if date_col not in df.columns:
+            return None
+        dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
+        if dates.empty:
+            return None
+        dataset_max = dates.max().to_pydatetime()
+        from .query_plan_service import TimeFilter, TimeMode
+        from .time_resolver import TimeResolver
+        time_filter = TimeFilter(mode=TimeMode.LAST_COMPLETED_QUARTER)
+        start_date, end_exclusive, _ = TimeResolver.resolve_time_window(time_filter, dataset_max, dataset_max)
+        if start_date is None or end_exclusive is None:
+            return None
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_exclusive.strftime('%Y-%m-%d')
+        # Determine requested top N (default 10)
+        top_n = None
+        match = re.search(r"top\s+(\d+)", (question or "").lower())
+        if match:
+            try:
+                top_n = int(match.group(1))
+            except Exception:
+                top_n = None
+        if not top_n:
+            top_n = 10
+        requirements = {
+            "group_by": ["salesman_name"],
+            "metrics": [{"name": "revenue", "agg": "SUM"}],
+            "time": {
+                "type": "point",
+                "axis": "quarter",
+                "span": "last_completed_quarter",
+                "explicit": {"start": start_str, "end": end_str}
+            },
+            "outputs": {"table": True, "delta": False, "pct_change": False, "share": False, "top_n": top_n},
+            "filters": [],
+            "presentation": {"sort": ["revenue:desc", "salesman_name:asc"]},
+            "confidence": 0.9,
+            "reason": "Top performers last completed quarter"
+        }
+        plan = {
+            "intent": "ranking",
+            "time_grain": "quarter",
+            "time_window": {
+                "mode": "explicit_range",
+                "explicit": {"start": start_str, "end": end_str}
+            },
+            "compare": None,
+            "entity": "salesman_name",
+            "measure": {"name": "revenue", "expr": "SUM(value)"},
+            "top_n": top_n,
+            "constraints": [],
+            "filters": [],
+            "confidence": 0.9,
+            "reason": "Top performers last completed quarter",
+            "_requirements": requirements,
+            "_repairs_applied": 0,
+            "_question": question
+        }
+        return plan
+    
     def _parse_explicit_date_range(self, question: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
         """
         Parse explicit YYYY-MM-DD date range from question text.
@@ -512,6 +604,52 @@ class SQLGenerationService:
         """Check if Gemini API is available."""
         api_key = ConfigService.get_gemini_api_key()
         return api_key is not None
+    
+    def _track_quota_usage(self, model_name: str) -> None:
+        """Track API quota usage for monitoring."""
+        from datetime import date
+        today = date.today()
+        
+        # Reset daily counter if new day
+        if self._quota_tracking['last_reset_date'] != today:
+            self._quota_tracking['daily_requests'] = 0
+            self._quota_tracking['last_reset_date'] = today
+        
+        # Increment counters
+        self._quota_tracking['daily_requests'] += 1
+        if model_name not in self._quota_tracking['model_usage']:
+            self._quota_tracking['model_usage'][model_name] = 0
+        self._quota_tracking['model_usage'][model_name] += 1
+        
+        # Log if approaching limits (warn at 80% of free tier)
+        if self._quota_tracking['daily_requests'] >= 40:  # 80% of 50
+            print(f"[Quota Warning] Daily requests: {self._quota_tracking['daily_requests']}/50 (approaching limit)")
+    
+    def _get_current_model(self) -> Optional[str]:
+        """Get current model with fallback logic."""
+        models = ConfigService.GEMINI_MODELS
+        if not models:
+            return None
+        
+        # Try current model index first
+        if self._current_model_index < len(models):
+            return models[self._current_model_index]
+        
+        # Fallback to first model
+        return models[0]
+    
+    def _switch_to_next_model(self) -> bool:
+        """Switch to next available model. Returns True if switched, False if no more models."""
+        models = ConfigService.GEMINI_MODELS
+        if self._current_model_index + 1 < len(models):
+            self._current_model_index += 1
+            print(f"[Model Switch] Switching to {models[self._current_model_index]} (index {self._current_model_index})")
+            return True
+        return False
+    
+    def _reset_model_selection(self) -> None:
+        """Reset model selection to first model."""
+        self._current_model_index = 0
     
     def build_schema_json(self, df: pd.DataFrame, columns: Dict[str, str]) -> Dict[str, Any]:
         """
@@ -621,13 +759,14 @@ class SQLGenerationService:
         
         return schema
     
-    def generate_sql(self, question: str, schema: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_sql(self, question: str, schema: Dict[str, Any], _retry_count: int = 0) -> Dict[str, Any]:
         """
         Generate SQL from natural language question using LLM.
         
         Args:
             question: User's natural language question
             schema: Schema JSON dictionary
+            _retry_count: Internal counter to prevent infinite recursion (max 1 retry)
             
         Returns:
             Dictionary with 'sql' key or 'clarify' key
@@ -635,8 +774,20 @@ class SQLGenerationService:
         if not self.use_llm:
             return {"clarify": "SQL generation requires Gemini API key"}
         
+        # Prevent infinite recursion (max 1 model switch retry)
+        if _retry_count > 1:
+            return {"clarify": "All Gemini models exhausted. Using fallback heuristics."}
+        
+        # Get current model with fallback support
+        model_name = self._get_current_model()
+        if not model_name:
+            return {"clarify": "No Gemini models configured"}
+        
+        # Track quota usage
+        self._track_quota_usage(model_name)
+        
         try:
-            model = genai.GenerativeModel(ConfigService.GEMINI_MODELS[0])
+            model = genai.GenerativeModel(model_name)
             
             # Get date and amount column names for reference
             date_col_name = None
@@ -811,11 +962,78 @@ Return JSON only with either "sql" or "clarify" key:
             )
             return {"clarify": "Could not parse SQL generation response"}
         except Exception as e:
+            error_message = str(e)
+            error_lower = error_message.lower()
+            
+            # Handle quota/rate limit errors with model fallback
+            if '429' in error_message or 'quota' in error_lower or 'rate limit' in error_lower:
+                self._quota_tracking['quota_errors'] += 1
+                
+                # Extract retry delay if available
+                retry_delay = None
+                if 'retry' in error_lower or 'delay' in error_lower:
+                    import re
+                    delay_match = re.search(r'(\d+\.?\d*)\s*(?:seconds?|s)', error_lower)
+                    if delay_match:
+                        retry_delay = float(delay_match.group(1))
+                
+                # Try next model if available
+                if self._switch_to_next_model():
+                    print(f"[Quota Error] Model {model_name} hit quota limit. Switching to {self._get_current_model()}")
+                    # Retry with new model (recursive call, but only once)
+                    try:
+                        return self.generate_sql(question, schema, _retry_count=_retry_count + 1)
+                    except Exception:
+                        pass  # Fall through to kill-switch
+                
+                # Log quota info
+                daily_usage = self._quota_tracking['daily_requests']
+                ErrorHandlingService.log_error(
+                    f"Gemini quota exceeded: model={model_name}, daily_requests={daily_usage}/50, "
+                    f"quota_errors={self._quota_tracking['quota_errors']}, retry_delay={retry_delay}s",
+                    category=ErrorCategory.API
+                )
+                
+                # Enable kill-switch if too many quota errors
+                if self._quota_tracking['quota_errors'] >= 3:
+                    self.llm_auto_fallback_enabled = True
+                    st.session_state['llm_degraded'] = True
+                    print(f"[Kill-Switch] Activated due to {self._quota_tracking['quota_errors']} quota errors")
+                
+                retry_msg = f" Please retry in {retry_delay:.1f}s." if retry_delay else " Please retry in a few seconds."
+                return {
+                    "clarify": f"Gemini API quota/rate limit reached (daily: {daily_usage}/50). "
+                              f"I've switched to fallback heuristics.{retry_msg}",
+                    "quota_exceeded": True,
+                    "retry_delay": retry_delay
+                }
+            
+            # Handle 404 errors (model not found) - try next model
+            if '404' in error_message and ('not found' in error_lower or 'not supported' in error_lower):
+                print(f"[Model Error] Model {model_name} not found or not supported (404). Trying next model...")
+                if self._switch_to_next_model():
+                    next_model = self._get_current_model()
+                    print(f"[Model Switch] Switching from {model_name} to {next_model}")
+                    try:
+                        return self.generate_sql(question, schema, _retry_count=_retry_count + 1)
+                    except Exception as retry_error:
+                        ErrorHandlingService.log_error(
+                            f"Failed to switch to {next_model}: {retry_error}",
+                            category=ErrorCategory.API
+                        )
+                        return {
+                            "clarify": f"Model {model_name} is not available. All models exhausted. Using fallback heuristics."
+                        }
+                else:
+                    return {
+                        "clarify": f"Model {model_name} is not available and no fallback models configured. Using fallback heuristics."
+                    }
+            
             ErrorHandlingService.log_error(
                 f"SQL generation error: {e}",
                 ErrorCategory.DATA_PROCESSING
             )
-            return {"clarify": f"SQL generation failed: {str(e)}"}
+            return {"clarify": f"SQL generation failed: {error_message}"}
     
     def validate_sql(self, sql: str) -> tuple[bool, Optional[str]]:
         """
@@ -1763,7 +1981,10 @@ Return JSON only with either "sql" or "clarify" key:
         
         try:
             start_time = time.time()
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model_name = self._get_current_model()
+            if not model_name:
+                return None
+            model = genai.GenerativeModel(model_name)
             
             prompt = f"""You are an intent parser. Output JSON only.
 
@@ -1880,7 +2101,10 @@ Return only the JSON:"""
         
         try:
             start_time = time.time()
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model_name = self._get_current_model()
+            if not model_name:
+                return None
+            model = genai.GenerativeModel(model_name)
             
             prompt = f"""You extract analytical requirements from a user question about a single table `sales_norm`.
 
@@ -2066,7 +2290,10 @@ Return only the JSON:"""
         
         try:
             start_time = time.time()
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model_name = self._get_current_model()
+            if not model_name:
+                return None
+            model = genai.GenerativeModel(model_name)
             
             prompt = f"""Given Requirements JSON and the schema above, produce an execution PLAN JSON.
 
@@ -2349,7 +2576,10 @@ Return only the JSON:"""
             return None
         
         try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model_name = self._get_current_model()
+            if not model_name:
+                return None
+            model = genai.GenerativeModel(model_name)
             
             prompt = f"""Fix the PLAN JSON so it satisfies these constraints:
 
@@ -3336,36 +3566,13 @@ LIMIT {int(n)}
         confidence = 0.0
         repairs_applied = 0
         
-        # Step 0: deterministic heuristics (preempt LLM path)
-        heuristic_candidates = [
-            self._heuristic_detect_month_ranking(question, columns, df),
-            self._heuristic_salesman_range_totals(question, columns, df),
-            self._heuristic_last_completed_quarter_comparison(question, columns, df),
-            self._heuristic_highest_revenue_day(question, columns, df),
-            self._heuristic_negative_revenue_months(question, columns, df),
-        ]
-        for candidate in heuristic_candidates:
-            if not candidate:
-                continue
-            print(f"[SQLGenerationService] Heuristic candidate matched: {candidate.get('reason')}, intent={candidate.get('intent')}")
-            is_valid, error_msg = self._validate_query_plan(candidate, columns, df)
-            if not is_valid:
-                print(f"[SQLGenerationService] Heuristic validation failed: {error_msg}, continuing to LLM path")
-                continue
-            req = candidate.get('_requirements')
-            candidate = self._enforce_plan(req, candidate) if req else candidate
-            candidate['_requirements'] = req
-            candidate['_repairs_applied'] = candidate.get('_repairs_applied', 0)
-            print(f"[SQLGenerationService] Heuristic plan accepted: intent={candidate.get('intent')}, entity={candidate.get('entity')}, top_n={candidate.get('top_n')}")
-            return candidate
-        
-        # Step 1: Parse requirements (WHAT the user wants)
+        # Step 1: Parse requirements (WHAT the user wants) - LLM first, no hardcoding
         if self.use_llm and not self.llm_auto_fallback_enabled:
             requirements = self._parse_requirements_via_llm(question)
             if requirements:
                 print(f"[SQLGenerationService] Requirements parsed: group_by={requirements.get('group_by')}, time.type={requirements.get('time', {}).get('type')}, top_n={requirements.get('outputs', {}).get('top_n')}")
         
-        # Step 2: Parse plan (HOW to compute it)
+        # Step 2: Parse plan (HOW to compute it) - LLM first, no hardcoding
         if requirements and self.use_llm and not self.llm_auto_fallback_enabled:
             plan = self._parse_plan_via_llm(requirements, question)
             if plan:
@@ -3439,13 +3646,15 @@ LIMIT {int(n)}
         elif plan:
             print(f"[SQLGenerationService] Plan confidence below acceptance threshold ({confidence:.2f}); using fallback path.")
         
-        # Heuristic fallbacks (structure-based, deterministic)
-        if (not plan) or (confidence < 0.6):
+        # Heuristic fallbacks (ONLY when LLM is unavailable/degraded or confidence too low)
+        # These are true fallbacks, not preemptive hardcoding
+        if (not plan) or (confidence < 0.6) or self.llm_auto_fallback_enabled or not self.use_llm:
             heuristic_candidates = [
                 self._heuristic_detect_month_ranking(question, columns, df),
                 self._heuristic_salesman_range_totals(question, columns, df),
                 self._heuristic_last_completed_quarter_comparison(question, columns, df),
                 self._heuristic_highest_revenue_day(question, columns, df),
+                self._heuristic_top_performers(question, columns, df),
             ]
             for h_plan in heuristic_candidates:
                 if not h_plan:

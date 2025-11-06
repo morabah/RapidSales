@@ -14,7 +14,7 @@ class ConfigService:
     GEMINI_TIMEOUT: int = 30
     GEMINI_RETRY_ATTEMPTS: int = 2
     GEMINI_RETRY_DELAY_BASE: float = 0.8
-    GEMINI_MODELS: list[str] = ['gemini-2.0-flash-exp', 'gemini-1.5-flash']
+    GEMINI_MODELS: list[str] = ['gemini-2.5-flash', 'gemini-2.0-flash-exp']
     
     # UI/Theme Configuration
     CHART_COLORS: list[str] = [
