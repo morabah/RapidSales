@@ -9,29 +9,39 @@ import numpy as np
 from datetime import datetime
 import re
 import difflib
+import io
+import time
 from dateutil.relativedelta import relativedelta
-px.defaults.color_discrete_sequence = ["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#A855F7", "#06B6D4"]
-_rapid_layout = go.Layout(
-    paper_bgcolor='rgba(0,0,0,0)',
-    plot_bgcolor='rgba(0,0,0,0)',
-    font=dict(color='#E5E7EB'),
-    xaxis=dict(showgrid=True, gridcolor='#1F2937', tickfont=dict(color='#9CA3AF'), title_font=dict(color='#E5E7EB')),
-    yaxis=dict(showgrid=True, gridcolor='#1F2937', tickfont=dict(color='#9CA3AF'), title_font=dict(color='#E5E7EB')),
-    legend=dict(font=dict(color='#E5E7EB')),
-    colorway=["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#A855F7", "#06B6D4"],
+
+# Import services
+from services import (
+    ColumnDetectionService,
+    InsightService,
+    AIService,
+    DataFormattingService,
+    ErrorHandlingService,
+    ErrorCategory,
+    ConfigService,
+    get_config,
 )
+
+# Initialize configuration
+config = get_config()
+
+# Apply chart configuration
+px.defaults.color_discrete_sequence = config.CHART_COLORS
+_rapid_layout = config.get_chart_layout()
 pio.templates["rapid_dark"] = go.layout.Template(layout=_rapid_layout)
 px.defaults.template = "rapid_dark"
 
-# Optional Gemini availability check (graceful fallback if key missing)
-USE_GEMINI = False
-try:
-    _k = st.secrets.get("GEMINI_API_KEY", None)
-    if _k:
-        genai.configure(api_key=_k)
-        USE_GEMINI = True
-except Exception:
-    USE_GEMINI = False
+# Initialize services
+column_detection_service = ColumnDetectionService()
+insight_service = InsightService()
+ai_service = AIService()
+data_formatting_service = DataFormattingService()
+
+# Optional Gemini availability check (for backward compatibility)
+USE_GEMINI = config.use_gemini()
 
 # Page configuration
 st.set_page_config(
@@ -195,446 +205,48 @@ if 'columns' not in st.session_state:
     st.session_state.columns = None
 if 'selected_insight' not in st.session_state:
     st.session_state.selected_insight = None
+if 'override_columns' not in st.session_state:
+    st.session_state.override_columns = {}
+if 'chat_date_range' not in st.session_state:
+    st.session_state.chat_date_range = None
+if 'currency_prefix' not in st.session_state:
+    st.session_state.currency_prefix = ""
+if 'analysis_top_n' not in st.session_state:
+    st.session_state.analysis_top_n = config.DEFAULT_TOP_N
 
-# Period parsing helpers
-def parse_period(text: str):
-    """Return ('this_month'| 'last_month' | 'last_n_months', n | None) or None."""
-    q = (text or "").lower()
-    if "this month" in q:
-        return ("this_month", None)
-    if "last month" in q:
-        return ("last_month", None)
-    m = re.search(r'last\s+(\d+)\s+months?', q)
-    if m:
-        try:
-            return ("last_n_months", int(m.group(1)))
-        except Exception:
-            return None
-
-# Numeric formatting helpers (K/M/B) for tables
-def _abbrev_num(v):
-    try:
-        v = float(v)
-    except Exception:
-        return v
-    av = abs(v)
-    if av >= 1_000_000_000:
-        return f"{v/1_000_000_000:.1f}B"
-    if av >= 1_000_000:
-        return f"{v/1_000_000:.1f}M"
-    if av >= 1_000:
-        return f"{v/1_000:.1f}K"
-    return f"{v:,.0f}"
+# Helper functions for backward compatibility (wrappers around services)
+def format_chat_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Format DataFrame for chat display."""
+    prefix = st.session_state.get('currency_prefix') or ""
+    return data_formatting_service.format_chat_dataframe(df, prefix)
 
 def format_df_km(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for c in out.columns:
-        if pd.api.types.is_numeric_dtype(out[c]):
-            out[c] = out[c].apply(_abbrev_num)
-    return out
+    """Format DataFrame with K/M/B abbreviations - Delegates to DataFormattingService."""
+    return data_formatting_service.format_dataframe_km(df)
 
-def filter_by_period(df, date_col, period):
-    if not period or not date_col or date_col not in df.columns:
-        return df
-    now = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0)
-    p, n = period
-    if p == "this_month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = start + relativedelta(months=1)
-    elif p == "last_month":
-        end = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start = end - relativedelta(months=1)
-    elif p == "last_n_months" and n:
-        end = now
-        start = end - relativedelta(months=n)
-    else:
-        return df
-    d = pd.to_datetime(df[date_col], errors='coerce')
-    return df[(d >= start) & (d < end)].copy()
+def _abbrev_num(v):
+    """Abbreviate number to K/M/B format - Delegates to DataFormattingService."""
+    return data_formatting_service.abbreviate_number(v)
 
-# Helper functions
+# Old functions moved to services - keeping wrappers for backward compatibility
+# Note: All business logic has been moved to service classes
 def find_column(df, keywords):
-    """
-    Prefer exact/word-bound matches; fall back to safe substring if needed.
-    Returns the first best match.
-    """
-    cols = list(df.columns)
-    lower = {c: c.lower() for c in cols}
+    """Find column by keywords - Delegates to ColumnDetectionService."""
+    return column_detection_service.find_column(df, keywords)
 
-    # exact match
-    for kw in keywords:
-        for c in cols:
-            if lower[c] == kw.lower():
-                return c
-
-    # word-boundary match
-    for kw in keywords:
-        pat = re.compile(rf'\b{re.escape(kw.lower())}\b')
-        for c in cols:
-            if pat.search(lower[c]):
-                return c
-
-    # safe substring match (avoid colliding words like salesman)
-    blocklist = {"salesman", "sales_person", "sales man", "rep", "agent", "sales rep"}
-    for kw in keywords:
-        k = kw.lower()
-        for c in cols:
-            lc = lower[c]
-            if k in lc and lc not in blocklist:
-                return c
-    try:
-        numeric_kw = {"amount", "sales", "revenue", "total", "value", "quantity", "qty", "units", "price", "unit_price", "rate", "net", "gross", "subtotal"}
-        want_date = any(("date" in kw.lower()) or ("time" in kw.lower()) for kw in keywords)
-        want_numeric = any(any(t in kw.lower() for t in numeric_kw) for kw in keywords)
-        if want_date:
-            cand = []
-            for c in cols:
-                try:
-                    s = pd.to_datetime(df[c], errors='coerce')
-                    if s.notna().mean() > 0.6:
-                        cand.append(c)
-                except Exception:
-                    pass
-            if not cand:
-                cand = cols
-        elif want_numeric:
-            cand = []
-            for c in cols:
-                try:
-                    s = pd.to_numeric(df[c], errors='coerce')
-                    if s.notna().sum() > 0:
-                        cand.append(c)
-                except Exception:
-                    pass
-            if not cand:
-                cand = cols
-        else:
-            cand = [c for c in cols if df[c].dtype == 'object'] or cols
-
-        def _norm(s):
-            return re.sub(r'[^a-z0-9]+', '', str(s).lower())
-
-        best = (None, 0.0)
-        for kw in keywords:
-            nk = _norm(kw)
-            for c in cand:
-                sc = difflib.SequenceMatcher(None, nk, _norm(c)).ratio()
-                if sc > best[1]:
-                    best = (c, sc)
-        if best[0] and best[1] >= 0.72:
-            return best[0]
-    except Exception:
-        pass
-    return None
-
-@st.cache_data(ttl=600)
-def calculate_insights(df):
-    """Calculate insights from data"""
-    if df is None or len(df) == 0:
-        return None
-    
-    # Auto-detect columns
-    columns = {
-        'customer': find_column(df, ['customer', 'client', 'account', 'customer_name', 'client_name', 'account_name', 'buyer', 'shop', 'store', 'outlet', 'party', 'company']),
-        'amount': find_column(df, ['amount', 'total', 'value', 'net', 'net_amount', 'gross_amount', 'grand_total', 'invoice_amount', 'sales_amount', 'sales_value', 'net sales', 'line total', 'subtotal', 'total_value', 'revenue', 'sale']),
-        'salesman': find_column(df, ['salesman', 'sales_person', 'salesperson', 'sales man', 'rep', 'agent', 'sales rep', 'representative', 'sales representative', 'sales executive', 'seller', 'owner', 'employee', 'staff', 'rep name', 'agent name', 'salesman name', 'user']),
-        'product': find_column(df, ['product', 'product_name', 'item', 'item_name', 'sku', 'item code', 'product code', 'material', 'material name', 'article', 'description', 'itemcode', 'code']),
-        'date': find_column(df, ['date', 'transaction_date', 'order_date', 'visitdate', 'invoice_date', 'invoicedate', 'doc_date', 'posting date', 'created_at', 'timestamp', 'sale date', 'visit date']),
-        'quantity': find_column(df, ['quantity', 'qty', 'units', 'unit', 'pcs']),
-        'price': find_column(df, ['price', 'unit_price', 'rate', 'unit rate', 'unitprice', 'selling_price', 'list_price'])
-    }
-
-    # Parse dates early
-    if columns['date'] and columns['date'] in df.columns:
-        df[columns['date']] = pd.to_datetime(df[columns['date']], errors='coerce')
-    if not columns['date']:
-        best_col, best_ratio = None, 0.0
-        for c in df.columns:
-            try:
-                s = pd.to_datetime(df[c], errors='coerce')
-                r = float(s.notna().mean())
-                if r > 0.7 and r > best_ratio:
-                    best_col, best_ratio = c, r
-            except Exception:
-                pass
-        if best_col:
-            columns['date'] = best_col
-            df[best_col] = pd.to_datetime(df[best_col], errors='coerce')
-
-    # Derive amount if missing but qty & price exist
-    if not columns['amount'] and columns['quantity'] and columns['price']:
-        q, p = columns['quantity'], columns['price']
-        if q in df.columns and p in df.columns:
-            df['_AMOUNT_'] = pd.to_numeric(df[q], errors='coerce').fillna(0) * pd.to_numeric(df[p], errors='coerce').fillna(0)
-            columns['amount'] = '_AMOUNT_'
-    if not columns['amount']:
-        exclude = {c for c in df.columns if any(t in c.lower() for t in ['qty', 'quantity', 'units', 'unit', 'pcs', 'price', 'unit_price', 'rate', 'tax', 'vat', 'discount', 'cost', 'cogs'])}
-        best_col, best_sum = None, -1.0
-        for c in df.columns:
-            if c in exclude:
-                continue
-            try:
-                s = pd.to_numeric(df[c], errors='coerce').fillna(0)
-                total = float(s.abs().sum())
-                if total > best_sum and s.notna().sum() > 0:
-                    best_col, best_sum = c, total
-            except Exception:
-                pass
-        if best_col:
-            columns['amount'] = best_col
-    
-    st.session_state.columns = columns
-    
-    insights = {
-        'total_records': len(df),
-        'columns': columns
-    }
-    
-    # Calculate revenue metrics
-    amount_col = columns['amount']
-    vals = None
-    if amount_col and amount_col in df.columns:
-        ser_amt = df[amount_col]
-        if ser_amt.dtype == 'object':
-            cleaned = ser_amt.astype(str).str.replace(r'[^0-9\-\.]+', '', regex=True)
-            vals = pd.to_numeric(cleaned, errors='coerce').fillna(0)
-        else:
-            vals = pd.to_numeric(ser_amt, errors='coerce').fillna(0)
-        insights['total_revenue'] = float(vals.sum())
-        insights['avg_order_value'] = float(vals.mean())
-        insights['min_order'] = float(vals.min())
-        insights['max_order'] = float(vals.max())
-    
-    # Top salesmen
-    salesman_col = columns['salesman']
-    if salesman_col and salesman_col in df.columns and amount_col and vals is not None:
-        tmp = pd.DataFrame({
-            'key': df[salesman_col],
-            '__amt': vals
-        })
-        top_salesmen = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
-        insights['top_salesmen'] = top_salesmen.head(5).to_dict()
-    
-    # Top customers
-    customer_col = columns['customer']
-    if customer_col and customer_col in df.columns and amount_col and vals is not None:
-        tmp = pd.DataFrame({
-            'key': df[customer_col],
-            '__amt': vals
-        })
-        top_customers = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
-        insights['top_customers'] = top_customers.head(5).to_dict()
-        # Calculate percentages
-        total_rev = float(insights.get('total_revenue', 0)) or 1.0
-        insights['top_customers_list'] = [
-            {
-                'name': name,
-                'revenue': float(revenue),
-                'percentage': round((float(revenue) / total_rev) * 100, 1)
-            }
-            for name, revenue in top_customers.head(5).items()
-        ]
-    
-    # Top products
-    product_col = columns['product']
-    if product_col and product_col in df.columns and amount_col and vals is not None:
-        tmp = pd.DataFrame({
-            'key': df[product_col],
-            '__amt': vals
-        })
-        top_products = tmp.groupby('key')['__amt'].sum().sort_values(ascending=False)
-        insights['top_products'] = top_products.head(5).to_dict()
-        total_rev = float(insights.get('total_revenue', 0)) or 1.0
-        insights['top_products_list'] = [
-            {
-                'name': name,
-                'revenue': float(revenue),
-                'percentage': round((float(revenue) / total_rev) * 100, 1)
-            }
-            for name, revenue in top_products.head(5).items()
-        ]
-    
-    # Churn risk analysis
-    if customer_col and customer_col in df.columns:
-        customer_frequency = df[customer_col].value_counts().to_dict()
-        if customer_frequency:
-            avg_frequency = sum(customer_frequency.values()) / len(customer_frequency)
-            churn_risk = [
-                {
-                    'name': name,
-                    'visits': int(freq),
-                    'risk': 'High'
-                }
-                for name, freq in customer_frequency.items()
-                if freq < avg_frequency * 0.5
-            ]
-            insights['churn_risk'] = sorted(churn_risk, key=lambda x: x['visits'])[:5]
-    
-    # Forecast accuracy (simulated)
-    insights['forecast_accuracy'] = 85
-    
-    return insights
+@st.cache_data(ttl=config.CACHE_TTL)
+def calculate_insights(df, override_columns=None):
+    """Calculate insights from data - Delegates to InsightService."""
+    return insight_service.calculate_insights(df, override_columns)
 
 def prepare_data_summary(df, insights):
-    """Prepare data summary for Gemini"""
-    if df is None or insights is None:
-        return {}
-    
-    summary = {
-        'total_records': insights.get('total_records', 0),
-        'columns': list(df.columns),
-        'column_types': {col: str(df[col].dtype) for col in df.columns}
-    }
-    
-    # Add sample data with proper serialization
-    sample_df = df.head(10).copy()
-    
-    # Convert timestamps and other non-serializable objects to strings
-    for col in sample_df.columns:
-        if sample_df[col].dtype == 'datetime64[ns]':
-            sample_df[col] = sample_df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        elif sample_df[col].dtype == 'object':
-            # Convert any remaining non-serializable objects to strings
-            sample_df[col] = sample_df[col].astype(str)
-    
-    summary['sample_data'] = sample_df.to_dict('records')
-    summary['column_mapping'] = insights.get('columns', {})
-    
-    # Add insights
-    if 'total_revenue' in insights:
-        summary['total_revenue'] = float(insights['total_revenue']) if insights['total_revenue'] is not None else 0
-        summary['avg_order_value'] = float(insights['avg_order_value']) if insights['avg_order_value'] is not None else 0
-    
-    if 'top_salesmen' in insights:
-        summary['top_salesmen'] = {k: float(v) for k, v in insights['top_salesmen'].items()}
-    
-    if 'top_customers_list' in insights:
-        summary['top_customers'] = insights['top_customers_list']
-    
-    if 'top_products_list' in insights:
-        summary['top_products'] = insights['top_products_list']
-    
-    if 'churn_risk' in insights:
-        summary['churn_risk_customers'] = insights['churn_risk']
-    
-    return summary
+    """Prepare data summary for Gemini - Delegates to InsightService."""
+    return insight_service.prepare_data_summary(df, insights)
 
 def create_data_table(df, question, insights):
-    """Return a DataFrame relevant to the question with period awareness."""
-    if df is None:
-        return None
-
-    ql = (question or "").lower()
-    cols = st.session_state.get('columns', {}) or {}
-    amt = cols.get('amount')
-    sm  = cols.get('salesman')
-    dt  = cols.get('date')
-
-    # Apply period filter if present
-    per = parse_period(ql)
-    if per:
-        df = filter_by_period(df, dt, per)
-
-    # If amount is missing, try to derive from qty*price if available
-    if not amt or amt not in df.columns:
-        q = cols.get('quantity')
-        p = cols.get('price')
-        if q and p and q in df.columns and p in df.columns:
-            qv = pd.to_numeric(df[q], errors='coerce').fillna(0)
-            pv = pd.to_numeric(df[p], errors='coerce').fillna(0)
-            df = df.assign(__amt=(qv * pv))
-            amt = '__amt'
-        else:
-            num_cols = [c for c in df.columns if pd.to_numeric(df[c], errors='coerce').notna().sum() > 0]
-            if num_cols:
-                best_col, best_sum = None, -1.0
-                for c in num_cols:
-                    s = pd.to_numeric(df[c], errors='coerce').fillna(0)
-                    total = float(s.abs().sum())
-                    if total > best_sum:
-                        best_col, best_sum = c, total
-                if best_col:
-                    amt = best_col
-            if not amt or amt not in df.columns:
-                return None
-
-    # Normalize amount to numeric
-    ser_amt = df[amt]
-    if ser_amt.dtype == 'object':
-        cleaned = ser_amt.astype(str).str.replace(r'[^0-9\-\.]+', '', regex=True)
-        vals = pd.to_numeric(cleaned, errors='coerce').fillna(0)
-    else:
-        vals = pd.to_numeric(ser_amt, errors='coerce').fillna(0)
-    df = df.assign(__amt=vals)
-
-    # 1) Salesman questions
-    if any(w in ql for w in ['salesman', 'salesmen', 'sales rep', 'rep', 'best salesman', 'top salesman']):
-        if sm and sm in df.columns:
-            out = df.groupby(sm, dropna=False)['__amt'].sum().reset_index()
-            out = out.sort_values('__amt', ascending=False).rename(columns={sm: 'Salesman', '__amt': 'Revenue'})
-            out['Revenue'] = out['Revenue'].round(2)
-            return out.head(10)
-
-    # 2) Product questions
-    prod = cols.get('product')
-    if any(w in ql for w in ['product', 'item', 'sku', 'top product', 'best product']) and prod and prod in df.columns:
-        out = df.groupby(prod, dropna=False)['__amt'].sum().reset_index()
-        out = out.sort_values('__amt', ascending=False).rename(columns={prod: 'Product', '__amt': 'Revenue'})
-        out['Revenue'] = out['Revenue'].round(2)
-        return out.head(10)
-
-    # 3) Customer questions
-    cust = cols.get('customer')
-    if any(w in ql for w in ['declin', 'at-risk', 'at risk', 'churn', 'losing', 'drop', 'decreas']) and cust and cust in df.columns and dt and dt in df.columns:
-        dts = pd.to_datetime(df[dt], errors='coerce')
-        tmp = pd.DataFrame({'cust': df[cust], 'month': dts.dt.to_period('M').astype(str), '__amt': vals})
-        roll = tmp.groupby(['cust', 'month'])['__amt'].sum().reset_index()
-        roll['month_dt'] = pd.to_datetime(roll['month'] + '-01', errors='coerce')
-        last_months = sorted(roll['month_dt'].dropna().unique())
-        if len(last_months) < 4:
-            agg = tmp.groupby('cust')['__amt'].sum().reset_index().rename(columns={'cust': 'Customer', '__amt': 'Revenue'})
-            out = agg.sort_values('Revenue').head(10)
-            out['Revenue'] = out['Revenue'].round(2)
-            return out
-        last3 = last_months[-3:]
-        prev3 = last_months[-6:-3]
-        msk_last = roll['month_dt'].isin(last3)
-        msk_prev = roll['month_dt'].isin(prev3)
-        last_df = roll[msk_last].groupby('cust')['__amt'].sum()
-        prev_df = roll[msk_prev].groupby('cust')['__amt'].sum()
-        idx = set(last_df.index) | set(prev_df.index)
-        records = []
-        for ckey in idx:
-            L = float(last_df.get(ckey, 0.0))
-            P = float(prev_df.get(ckey, 0.0))
-            if P > 0 and L < P:
-                change = L - P
-                pct = (change / P) * 100.0
-                records.append({'Customer': ckey, 'Prev 3M': round(P, 2), 'Last 3M': round(L, 2), 'Change': round(change, 2), 'Change %': round(pct, 1)})
-        if records:
-            out = pd.DataFrame(records).sort_values(['Change %', 'Change']).head(10)
-            return out
-        recent = roll[msk_last].groupby('cust')['__amt'].sum().reset_index().rename(columns={'cust': 'Customer', '__amt': 'Last 3M'})
-        out = recent.sort_values('Last 3M').head(10)
-        out['Last 3M'] = out['Last 3M'].round(2)
-        return out
-
-    if any(w in ql for w in ['customer', 'client', 'account', 'top customer', 'best customer']) and cust and cust in df.columns:
-        out = df.groupby(cust, dropna=False)['__amt'].sum().reset_index()
-        out = out.sort_values('__amt', ascending=False).rename(columns={cust: 'Customer', '__amt': 'Revenue'})
-        out['Revenue'] = out['Revenue'].round(2)
-        return out.head(10)
-
-    # Default: monthly rollup if date exists
-    if dt and dt in df.columns:
-        month = pd.to_datetime(df[dt], errors='coerce').dt.to_period('M').astype(str)
-        out = df.groupby(month, dropna=False)['__amt'].sum().reset_index()
-        out = out.rename(columns={dt: 'Month', '__amt': 'Revenue'})
-        out['Revenue'] = out['Revenue'].round(2)
-        out = out.sort_values('Month')
-        return out
-
-    return None
+    """Return a DataFrame relevant to the question - Delegates to InsightService."""
+    topn = st.session_state.get('analysis_top_n', 10)
+    return insight_service.create_data_table(df, question, insights, topn)
 
 def get_chart_spec(question: str, table: pd.DataFrame):
     if table is None or table.empty:
@@ -651,7 +263,7 @@ def get_chart_spec(question: str, table: pd.DataFrame):
         return {'type': 'bar_group', 'x': 'Customer', 'series': ['Prev 3M', 'Last 3M'], 'title': 'Customer Spend: Prev 3M vs Last 3M'}
     if {'Month', 'Revenue'}.issubset(cols) and len(table) >= 2:
         return {'type': 'line', 'x': 'Month', 'y': 'Revenue', 'title': 'Monthly Revenue Trend'}
-    return None
+        return None
 
 def build_chart_from_spec(table: pd.DataFrame, spec: dict):
     if not spec:
@@ -660,6 +272,7 @@ def build_chart_from_spec(table: pd.DataFrame, spec: dict):
     if t == 'bar':
         fig = px.bar(table, x=spec.get('x'), y=spec.get('y'), orientation=spec.get('orientation', 'v'), title=spec.get('title'))
         fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=360, showlegend=False)
+        fig.update_layout(xaxis=dict(tickformat=',.2f', tickprefix=st.session_state.get('currency_prefix') or ""))
         fig.update_traces(marker_line_width=0, marker_line_color='white')
         return fig
     if t == 'bar_group':
@@ -668,102 +281,24 @@ def build_chart_from_spec(table: pd.DataFrame, spec: dict):
         df_long = table.melt(id_vars=[x], value_vars=series, var_name='Metric', value_name='Value')
         fig = px.bar(df_long, x=x, y='Value', color='Metric', barmode='group', title=spec.get('title'))
         fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=380)
+        fig.update_layout(yaxis=dict(tickformat=',.2f', tickprefix=st.session_state.get('currency_prefix') or ""))
         fig.update_traces(marker_line_width=0)
         return fig
     if t == 'line':
         fig = px.line(table, x=spec.get('x'), y=spec.get('y'), title=spec.get('title'))
         fig.update_layout(margin=dict(l=8, r=8, t=40, b=8), height=360, hovermode='x unified', showlegend=False)
+        fig.update_layout(yaxis=dict(tickformat=',.2f', tickprefix=st.session_state.get('currency_prefix') or ""))
         fig.update_traces(line=dict(width=2), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.15)')
         return fig
     return None
 
 def query_ai(question, data_summary, df=None, insights=None):
     """
+    Query AI - Delegates to AIService.
     If Gemini is available, ask it for a polished write-up.
     Otherwise, build a local, data-grounded answer.
     """
-    try:
-        if USE_GEMINI:
-            # Ensure data_summary is JSON serializable
-            try:
-                json_data = json.dumps(data_summary, indent=2, default=str)
-            except Exception:
-                safe_summary = {}
-                for key, value in data_summary.items():
-                    if isinstance(value, (dict, list)):
-                        safe_summary[key] = str(value)
-                    else:
-                        safe_summary[key] = value
-                json_data = json.dumps(safe_summary, indent=2, default=str)
-
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            prompt = f"""
-You are a senior BI analyst. Use ONLY the uploaded Excel data (RAG) in the context below.
-
-DATA SUMMARY (JSON):
-{json_data}
-
-BUSINESS QUESTION:
-{question}
-
-RULES:
-- Use the detected column mapping in the data summary if present (e.g., amount, date, salesman, customer, product). Do not invent columns. If a needed field is missing, state it in one short sentence.
-- Apply any timeframe in the question; otherwise use the full available period.
-
-OUTPUT FORMAT (Markdown only, no preamble or disclaimers):
-## Executive Summary
-One sentence, direct, with specific numbers.
-
-## Analysis
-A compact, relevant table (5–10 rows) tailored to the question. Only include columns that matter for the analysis (no generic placeholders). Format money with thousands separators and 2 decimals; percents with 1 decimal.
-
-## Key Insights
-- Up to 3 bullets, one sentence each.
-- Each must include a concrete metric change and timeframe (e.g., “X leads with $Y (Z% of total) in the last 3 months”).
-- No generic or obvious statements.
-
-## Chart
-One sentence naming the most decision-relevant chart (type and axes) for this analysis.
-
-## Recommended Actions
-- Exactly 2 bullets, one sentence each.
-- Imperative, specific, and measurable (tie directly to the insights; keep it to the point).
-
-Return only the Markdown above.
-"""
-            response = model.generate_content(prompt)
-            return response.text
-
-        # ---- Local fallback (no external LLM) ----
-        table = create_data_table(df, question, insights)
-        if table is not None and not table.empty:
-            top_row = table.iloc[0].to_dict()
-            parts = []
-            parts.append("## Executive Summary")
-            if 'Revenue' in top_row:
-                parts.append(f"Top result is ${float(top_row['Revenue']):,.2f}.")
-            else:
-                parts.append("Analysis completed from the uploaded sheet.")
-            parts.append("")
-            parts.append("## Analysis")
-            parts.append("See table below.")
-            parts.append("")
-            parts.append("## Key Insights")
-            if 'Revenue' in top_row:
-                parts.append(f"- Leading value: ${float(top_row['Revenue']):,.2f}.")
-            parts.append(f"- Rows analyzed: {len(table)}.")
-            parts.append("")
-            parts.append("## Chart")
-            parts.append("A decision-relevant chart is displayed below.")
-            parts.append("")
-            parts.append("## Recommended Actions")
-            parts.append("- Investigate drivers behind the top result.")
-            parts.append("- Apply winning patterns to weaker areas.")
-            return "\n".join(parts)
-        return "I couldn’t find the needed columns yet. Please check that amount/value and date/salesman exist."
-
-    except Exception as e:
-        return f"Error while answering: {e}"
+    return ai_service.query(question, data_summary, df, insights)
 
 # Professional TopSeven Header
 st.markdown("""
@@ -822,15 +357,100 @@ with tab1:
             help="Supported formats: .xlsx, .xls | Maximum file size: 200MB",
             label_visibility="collapsed"
         )
+        if st.button("Load included Sample data.xlsx", key="btn_load_sample"):
+            try:
+                sample_path = "/Volumes/Rabah_SSD/consultation/Rapid Sales/Rapid/Sample data.xlsx"
+                xls2 = pd.ExcelFile(sample_path)
+                df2 = pd.read_excel(sample_path, sheet_name=xls2.sheet_names[0])
+                try:
+                    if len(df2.columns) > 0:
+                        unnamed = sum(str(c).startswith('Unnamed') for c in df2.columns)
+                        if unnamed / max(len(df2.columns), 1) > 0.3:
+                            raw_head = pd.read_excel(sample_path, sheet_name=xls2.sheet_names[0], header=None, nrows=5)
+                            best_i, best_score = None, -1
+                            for i in range(min(5, len(raw_head))):
+                                vals = raw_head.iloc[i].astype(str).str.strip().str.lower().tolist()
+                                ok = [v for v in vals if v and v not in ('nan', 'none') and not v.startswith('unnamed') and len(v) > 1]
+                                score = len(set(ok))
+                                if score > best_score:
+                                    best_i, best_score = i, score
+                            if best_i is not None and best_score > 0:
+                                df2 = pd.read_excel(sample_path, sheet_name=xls2.sheet_names[0], header=best_i)
+                except Exception:
+                    pass
+                st.session_state.data = df2
+                insights2 = calculate_insights(df2)
+                st.session_state.insights = insights2
+                st.success("Loaded included Sample data.xlsx")
+                st.rerun()
+            except Exception as e:
+                error_info = ErrorHandlingService.process_error(
+                    e,
+                    context='load_sample_data',
+                    category=ErrorCategory.DATA,
+                    user_message="Failed to load sample data. Please try uploading your own file."
+                )
+                ErrorHandlingService.log_error(error_info)
+                st.error(ErrorHandlingService.display_error(error_info))
     
     if uploaded_file is not None:
         try:
+            bytes_data = uploaded_file.getvalue()
+            xls = pd.ExcelFile(io.BytesIO(bytes_data))
+            sheet = st.selectbox("Select sheet", xls.sheet_names, index=0, key="sheet_select")
             with st.spinner("Processing your data... Please wait."):
-                df = pd.read_excel(uploaded_file)
+                df = pd.read_excel(io.BytesIO(bytes_data), sheet_name=sheet)
+                try:
+                    if len(df.columns) > 0:
+                        unnamed = sum(str(c).startswith('Unnamed') for c in df.columns)
+                        if unnamed / max(len(df.columns), 1) > 0.3:
+                            raw_head = pd.read_excel(io.BytesIO(bytes_data), sheet_name=sheet, header=None, nrows=5)
+                            best_i, best_score = None, -1
+                            for i in range(min(5, len(raw_head))):
+                                vals = raw_head.iloc[i].astype(str).str.strip().str.lower().tolist()
+                                ok = [v for v in vals if v and v not in ('nan', 'none') and not v.startswith('unnamed') and len(v) > 1]
+                                score = len(set(ok))
+                                if score > best_score:
+                                    best_i, best_score = i, score
+                            if best_i is not None and best_score > 0:
+                                df = pd.read_excel(io.BytesIO(bytes_data), sheet_name=sheet, header=best_i)
+                except Exception:
+                    pass
                 st.session_state.data = df
                 
-                # Calculate insights
+                # Schema drift guard: preflight check on load
+                from services import DatasetCacheService
+                # Get initial column mapping from insights calculation
                 insights = calculate_insights(df)
+                columns = insights.get('columns', {})
+                
+                # Validate required columns (early, explicit)
+                is_valid, error_msg = DatasetCacheService.validate_required_columns(columns, df)
+                if not is_valid:
+                    # Stop processing and show column mapping UI with error code
+                    error_code = "SCHEMA_MISSING_COLUMN"
+                    st.session_state.insights = insights
+                    st.session_state.columns = columns
+                    st.session_state['schema_error'] = {
+                        'code': error_code,
+                        'message': error_msg,
+                        'columns': columns
+                    }
+                    st.error(f"❌ Schema validation failed ({error_code}): {error_msg}")
+                    st.info("💡 Please configure column mapping below to continue.")
+                    # Force column mapping UI to be expanded
+                    st.session_state['force_column_mapping'] = True
+                else:
+                    # Clear any previous schema errors
+                    if 'schema_error' in st.session_state:
+                        del st.session_state['schema_error']
+                    if 'force_column_mapping' in st.session_state:
+                        del st.session_state['force_column_mapping']
+                    
+                    # Store dataset hash for cache invalidation
+                    dataset_hash = DatasetCacheService.compute_dataset_hash(df, columns)
+                    st.session_state['dataset_hash'] = dataset_hash
+                
                 st.session_state.insights = insights
             
             st.markdown("""
@@ -849,16 +469,68 @@ with tab1:
             
             # Data preview in a styled container
             with st.expander("📊 Preview Data (First 20 Rows)", expanded=False):
-                st.dataframe(format_df_km(df.head(20)), use_container_width=True, height=400)
+                st.dataframe(format_df_km(df.head(config.MAX_DATA_ROWS_PREVIEW)), use_container_width=True, height=400)
+            
+            # Column mapping UI (expanded if schema error or forced)
+            expand_column_mapping = st.session_state.get('force_column_mapping', False) or st.session_state.get('schema_error') is not None
+            with st.expander("🧩 Configure Column Mapping", expanded=expand_column_mapping):
+                cols_list = list(df.columns)
+                cur = (st.session_state.columns or {})
+                def _idx(options, val):
+                    try:
+                        return options.index(val) if val in options else 0
+                    except Exception:
+                        return 0
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    sel_customer = st.selectbox("Customer", [""] + cols_list, index=_idx([""]+cols_list, cur.get('customer')), key="map_customer")
+                with c2:
+                    amt_options = [""] + cols_list + ["Derive: quantity × price"]
+                    default_amt = cur.get('amount') if cur.get('amount') in cols_list else ""
+                    sel_amount = st.selectbox("Amount", amt_options, index=_idx(amt_options, default_amt), key="map_amount")
+                with c3:
+                    sel_salesman = st.selectbox("Salesman", [""] + cols_list, index=_idx([""]+cols_list, cur.get('salesman')), key="map_salesman")
+                c4, c5, c6, c7 = st.columns(4)
+                with c4:
+                    sel_product = st.selectbox("Product", [""] + cols_list, index=_idx([""]+cols_list, cur.get('product')), key="map_product")
+                with c5:
+                    sel_date = st.selectbox("Date", [""] + cols_list, index=_idx([""]+cols_list, cur.get('date')), key="map_date")
+                with c6:
+                    sel_qty = st.selectbox("Quantity", [""] + cols_list, index=_idx([""]+cols_list, cur.get('quantity')), key="map_qty")
+                with c7:
+                    sel_price = st.selectbox("Price", [""] + cols_list, index=_idx([""]+cols_list, cur.get('price')), key="map_price")
+                if st.button("Apply Mapping", key="apply_mapping_btn"):
+                    overrides = {
+                        'customer': sel_customer or None,
+                        'amount': ('__DERIVED_AMOUNT__' if sel_amount == 'Derive: quantity × price' else (sel_amount or None)),
+                        'salesman': sel_salesman or None,
+                        'product': sel_product or None,
+                        'date': sel_date or None,
+                        'quantity': sel_qty or None,
+                        'price': sel_price or None,
+                    }
+                    st.session_state.override_columns = overrides
+                    insights = calculate_insights(df, override_columns=overrides)
+                    st.session_state.insights = insights
+                    st.session_state.columns = insights.get('columns', {})
+                    st.rerun()
                 
         except Exception as e:
+            error_info = ErrorHandlingService.process_error(
+                e,
+                context='file_upload',
+                category=ErrorCategory.DATA,
+                details={'filename': uploaded_file.name if uploaded_file else None}
+            )
+            ErrorHandlingService.log_error(error_info)
+            error_message = ErrorHandlingService.display_error(error_info)
             st.markdown(f"""
             <div style="background: rgba(239,68,68,0.12); padding: 1rem; border-radius: 8px; border-left: 4px solid var(--rs-danger); margin: 1.5rem 0;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <span style="font-size: 1.5rem;">❌</span>
                     <div>
                         <strong style="color: #FCA5A5; font-size: 1rem;">Error loading file</strong>
-                        <p style="color: #F87171; margin: 0.25rem 0 0 0; font-size: 0.875rem;">{str(e)}</p>
+                        <p style="color: #F87171; margin: 0.25rem 0 0 0; font-size: 0.875rem;">{error_message}</p>
                     </div>
                 </div>
             </div>
@@ -921,8 +593,31 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
         
+        df_tab2 = st.session_state.data
+        dtc = (st.session_state.columns or {}).get('date') if st.session_state.columns else None
+        if dtc and dtc in df_tab2.columns:
+            dts = pd.to_datetime(df_tab2[dtc], errors='coerce')
+            dmin, dmax = (dts.min(), dts.max())
+            if pd.notna(dmin) and pd.notna(dmax):
+                dr = st.date_input("Filter date range (optional)", value=(dmin.date(), dmax.date()), key="chat_date_picker")
+                if isinstance(dr, tuple) and len(dr) == 2:
+                    st.session_state.chat_date_range = dr
+        st.session_state.currency_prefix = st.text_input("Currency prefix (optional)", value=st.session_state.currency_prefix or "", key="currency_prefix_input")
+        
+        # Advanced Settings (collapsed by default for simplicity)
+        with st.expander("⚙️ Advanced Settings", expanded=False):
+            st.session_state.analysis_top_n = st.slider(
+                "Max rows in analysis tables", 
+                min_value=5, 
+                max_value=50, 
+                value=int(st.session_state.analysis_top_n or config.DEFAULT_TOP_N), 
+                step=1, 
+                key="analysis_top_n_slider",
+                help="Controls how many rows are shown in analysis tables (default: 10)"
+            )
+        
         # Display chat history
-        for message in st.session_state.chat_history:
+        for idx, message in enumerate(st.session_state.chat_history):
             role = message["role"]
             content = message["content"]
             
@@ -938,12 +633,12 @@ with tab2:
                     # Display table if available
                     if content.get("table"):
                         table_df = pd.DataFrame(content["table"])
-                        st.dataframe(table_df, use_container_width=True, hide_index=True)
+                        st.dataframe(format_chat_df(table_df), use_container_width=True, hide_index=True)
                     if content.get("chart") and content.get("table"):
                         table_df = pd.DataFrame(content["table"])
                         fig = build_chart_from_spec(table_df, content.get("chart"))
                         if fig is not None:
-                            st.plotly_chart(fig, use_container_width=True, key="plot_top_salesmen_t3")
+                            st.plotly_chart(fig, use_container_width=True, key=f"plot_chat_{idx}")
                 else:
                     # Old format (just text)
                     st.markdown('<div class="chat-message ai-message">🤖 <strong>AI</strong></div>', unsafe_allow_html=True)
@@ -1589,7 +1284,7 @@ with tab4:
                     if st.button("View details", key=f"view_{card['id']}_t4_col1"):
                         st.session_state.selected_insight = card['id']
                         st.rerun()
-
+        
         with col2:
             for i in range(1, len(insight_cards), 3):
                 if i < len(insight_cards):
