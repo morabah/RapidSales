@@ -1422,6 +1422,10 @@ Return JSON only with either "sql" or "clarify" key:
                 if '_requirements' not in plan and requirements:
                     plan['_requirements'] = requirements
                 
+                # Ensure question is stored in plan (for declining/at-risk filtering)
+                if '_question' not in plan:
+                    plan['_question'] = question
+                
                 # Derive executor from plan content (no keywords, pure structure)
                 # Requirements are checked FIRST for preemption
                 executor = self.derive_executor(plan)
@@ -2935,6 +2939,32 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
                 )[0],
                 axis=1
             )
+            
+            # Filter for declining/at-risk customers if query asks for it
+            question_text = str(plan.get('_question', '') or '')
+            # Fallback: try to get from requirements
+            if not question_text:
+                requirements = plan.get('_requirements', {})
+                if isinstance(requirements, dict):
+                    question_text = str(requirements.get('_question', '') or '')
+            if question_text:
+                ql = question_text.lower()
+                is_declining_query = any(term in ql for term in [
+                    'declin', 'at-risk', 'at risk', 'churn', 'losing', 'drop', 'decreas', 'downward', 'falling'
+                ])
+                if is_declining_query:
+                    # Filter to show only declining customers:
+                    # 1. Negative delta (current < previous)
+                    # 2. Negative pct_change (if previous > 0)
+                    # 3. Customers who had sales before but not now (previous > 0 and current == 0)
+                    declining_mask = (
+                        (result['delta'] < 0) |  # Revenue decreased
+                        ((result['previous_period_revenue'] > 0) & (result['base_period_revenue'] == 0))  # Lost customer
+                    )
+                    result = result[declining_mask].reset_index(drop=True)
+                    # Sort by delta (most negative first) to show worst declines
+                    if not result.empty:
+                        result = result.sort_values('delta', ascending=True).reset_index(drop=True)
             
             # Apply sorting if specified in plan (override SQL ORDER BY if needed)
             presentation = plan.get('presentation', {})
