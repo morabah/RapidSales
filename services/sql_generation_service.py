@@ -1,11 +1,9 @@
-"""
-SQL Generation Service
+"""SQL Generation Service
 Converts natural language questions to SQL using LLM with DuckDB execution.
 """
 
 import json
 import re
-import difflib
 import duckdb
 import pandas as pd
 from typing import Optional, Dict, Any, Tuple
@@ -103,507 +101,223 @@ class SQLGenerationService:
         
         return en_match or ar_match
     
-    @staticmethod
-    def _tokenize_text(text: str | None) -> list[str]:
-        """Tokenize text into lowercase alphanumeric tokens."""
-        if not text:
-            return []
-        return re.findall(r"[a-z0-9]+", text.lower())
-    
-    @staticmethod
-    def _fuzzy_ratio(a: str, b: str) -> float:
-        """Return fuzzy matching ratio between two tokens."""
-        return difflib.SequenceMatcher(None, a, b).ratio()
-    
-    def _contains_fuzzy_word(self, tokens: list[str], word: str, threshold: float = 0.8) -> bool:
-        """Check if tokens contain a word (fuzzy)."""
-        target = word.lower()
-        return any(self._fuzzy_ratio(token, target) >= threshold for token in tokens)
-    
-    def _contains_any_fuzzy_word(self, tokens: list[str], words: list[str], threshold: float = 0.8) -> bool:
-        """Check if any of the target words appear fuzzily in tokens."""
-        return any(self._contains_fuzzy_word(tokens, word, threshold) for word in words)
-    
-    def _contains_fuzzy_phrase(self, tokens: list[str], phrase_tokens: list[str], threshold: float = 0.8) -> bool:
-        """Check if sequence of tokens approximately matches phrase."""
-        if not tokens or not phrase_tokens:
-            return False
-        length = len(phrase_tokens)
-        for i in range(len(tokens) - length + 1):
-            if all(self._fuzzy_ratio(tokens[i + j], phrase_tokens[j]) >= threshold for j in range(length)):
-                return True
-        return False
-    
-    def _heuristic_detect_month_ranking(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
+    def _heuristic_build_month_ranking_plan(
+        self,
+        question: str,
+        columns: Dict[str, str],
+        df: pd.DataFrame
+    ) -> Optional[dict]:
         """
-        Heuristic detection for month-based ranking queries like:
-        "Top 2 brands by revenue in August 2024 and each brand's % share of that month".
-        Returns a ranking plan with explicit month range when detected.
+        Heuristic fallback for explicit top-N monthly ranking questions.
+        Triggered only when LLM-derived plan is unavailable.
         """
+        if not question:
+            return None
+        
+        from datetime import datetime
+        from .data_formatting_service import normalize_digits
+        
+        q_normalized = normalize_digits(question)
+        q_lower = q_normalized.lower()
+        
+        # Require explicit "top" phrase
+        top_match = re.search(r'\btop\s+(\d+)', q_lower)
+        if top_match:
+            top_n = int(top_match.group(1))
+        else:
+            # If no explicit number, default to 10 only if "top" present and share requested
+            if 'top' not in q_lower:
+                return None
+            top_n = 10
+        
+        # Determine entity based on keywords
+        entity_map = {
+            'brand': 'brand_name',
+            'product': 'brand_name',
+            'item': 'brand_name',
+            'salesman': 'salesman_name',
+            'salesperson': 'salesman_name',
+            'rep': 'salesman_name',
+            'customer': 'customer_name',
+            'client': 'customer_name'
+        }
+        
+        entity = None
+        for keyword, mapped in entity_map.items():
+            if f'{keyword}' in q_lower:
+                entity = mapped
+                break
+        if not entity:
+            return None
+        
+        # Parse month and year
+        month_names = {
+            'january': 1, 'jan': 1,
+            'february': 2, 'feb': 2,
+            'march': 3, 'mar': 3,
+            'april': 4, 'apr': 4,
+            'may': 5,
+            'june': 6, 'jun': 6,
+            'july': 7, 'jul': 7,
+            'august': 8, 'aug': 8,
+            'september': 9, 'sep': 9, 'sept': 9,
+            'october': 10, 'oct': 10,
+            'november': 11, 'nov': 11,
+            'december': 12, 'dec': 12
+        }
+        month_match = None
+        for name in month_names:
+            if name in q_lower:
+                month_match = name
+                break
+        if not month_match:
+            return None
+        month_num = month_names[month_match]
+        
+        year_match = re.search(r'(20\d{2})', q_lower)
+        if not year_match:
+            return None
+        year = int(year_match.group(1))
+        
         try:
-            q = (question or "").lower()
-            tokens = self._tokenize_text(question)
-            if not tokens:
-                return None
-            
-            # Quick gates: requires "top" (fuzzy) and a recognised entity keyword
-            if not self._contains_fuzzy_word(tokens, "top", threshold=0.75):
-                return None
-            
-            entity_candidates = [
-                (["brand", "brands", "product", "products"], "brand_name"),
-                (["customer", "customers", "client", "clients", "buyer", "buyers", "account", "accounts"], "customer_name"),
-                (["salesman", "salesmen", "salesperson", "rep", "reps", "representative", "representatives"], "salesman_name"),
-            ]
-            entity = None
-            for keywords, candidate in entity_candidates:
-                if self._contains_any_fuzzy_word(tokens, keywords, threshold=0.75):
-                    entity = candidate
-                    break
-            if not entity:
-                return None
-            
-            # Extract top N
-            n = None
-            m = re.search(r"top\s+(\d+)", q)
-            if m:
-                try:
-                    n = int(m.group(1))
-                except Exception:
-                    n = None
-            if n is None:
-                n = 10
-            # Month names map
-            month_names = {
-                'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
-                'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
-                'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
-            }
-            month_num = None
-            for name, num in month_names.items():
-                if re.search(rf"\b{name}\b", q):
-                    month_num = num
-                    break
-            if not month_num:
-                return None
-            # Extract year or default to dataset max year
-            year_match = re.search(r"20\d{2}", q)
-            if year_match:
-                year = int(year_match.group(0))
-            else:
-                # Default: dataset max year
-                date_col = columns.get('date', 'VISITDATE')
-                year = None
-                if date_col in df.columns:
-                    dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
-                    if not dates.empty:
-                        year = int(dates.max().year)
-                if year is None:
-                    return None
-            # Build explicit month range
-            from datetime import datetime
-            start = datetime(year, month_num, 1)
+            start_date = datetime(year, month_num, 1)
             if month_num == 12:
-                end = datetime(year + 1, 1, 1)
+                end_date = datetime(year + 1, 1, 1)
             else:
-                end = datetime(year, month_num + 1, 1)
-            # Build requirements and plan heuristically
-            requirements = {
-                "group_by": [entity],
-                "metrics": [{"name": "revenue", "agg": "SUM"}],
-                "time": {
-                    "type": "point",
-                    "axis": "month",
-                    "span": "explicit_range",
-                    "explicit": {"start": start.strftime('%Y-%m-%d'), "end": end.strftime('%Y-%m-%d')}
-                },
-                "outputs": {"table": True, "share": True, "top_n": n},
-                "filters": [],
-                "presentation": {"sort": ["revenue:desc", f"{entity}:asc"]},
-                "confidence": 0.9,
-                "reason": "Heuristic month ranking"
-            }
-            plan = {
-                "intent": "ranking",
-                "time_grain": "month",
-                "time_window": {
-                    "mode": "explicit_range",
-                    "explicit": {"start": start.strftime('%Y-%m-%d'), "end": end.strftime('%Y-%m-%d')}
-                },
-                "compare": None,
-                "entity": entity,
-                "measure": {"name": "revenue", "expr": "SUM(value)"},
-                "top_n": n,
-                "constraints": [],
-                "filters": [],
-                "confidence": 0.9,
-                "reason": "Heuristic month ranking",
-            }
-            # Attach requirements for routing preemption
-            plan['_requirements'] = requirements
-            plan['_repairs_applied'] = 0
-            plan['_question'] = question
-            return plan
-        except Exception:
+                end_date = datetime(year, month_num + 1, 1)
+        except ValueError:
             return None
-    
-    def _heuristic_salesman_range_totals(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
-        """
-        Heuristic for explicit date range revenue per salesman queries.
-        Example: "Show total revenue per salesman for 2025-01-01 to 2025-09-30 (inclusive)".
-        """
-        tokens = self._tokenize_text(question)
-        if not tokens:
-            return None
-        salesman_keywords = ["salesman", "salesmen", "salesperson", "rep", "representative", "agent"]
-        if not self._contains_any_fuzzy_word(tokens, salesman_keywords, threshold=0.75):
-            return None
-        # Require pattern similar to "per <salesman>" or "by <salesman>" using fuzzy matching
-        if not (self._contains_fuzzy_phrase(tokens, ["per", "salesman"], threshold=0.7) or
-                self._contains_fuzzy_phrase(tokens, ["by", "salesman"], threshold=0.7)):
-            # allow generic cases if question explicitly says "per" anywhere
-            if not self._contains_fuzzy_word(tokens, "per", threshold=0.75):
-                return None
-        if not columns.get('salesman'):
-            return None
-        date_range = self._parse_explicit_date_range(question)
-        if not date_range:
-            return None
-        start_date, end_inclusive = date_range
-        start_date = start_date.normalize()
-        end_inclusive = end_inclusive.normalize()
-        if start_date == end_inclusive:
-            # Single day range still valid; add one day for exclusivity
-            end_exclusive = end_inclusive + pd.Timedelta(days=1)
-        else:
-            end_exclusive = end_inclusive + pd.Timedelta(days=1)
+        
         start_str = start_date.strftime('%Y-%m-%d')
-        end_str = end_exclusive.strftime('%Y-%m-%d')
-        requirements = {
-            "group_by": ["salesman_name"],
-            "metrics": [{"name": "revenue", "agg": "SUM"}],
-            "time": {
-                "type": "range",
-                "axis": "day",
-                "span": "explicit_range",
-                "explicit": {"start": start_str, "end": end_str}
-            },
-            "outputs": {"table": True, "delta": False, "pct_change": False, "share": False, "top_n": None},
-            "filters": [],
-            "presentation": {"sort": ["revenue:desc", "salesman_name:asc"]},
-            "confidence": 0.92,
-            "reason": "Explicit range revenue per salesman"
-        }
-        plan = {
-            "intent": "generic_agg",
-            "time_grain": None,
-            "time_window": {"mode": "explicit_range", "explicit": {"start": start_str, "end": end_str}},
-            "compare": None,
-            "entity": "salesman_name",
-            "measure": {"name": "revenue", "expr": "SUM(value)"},
-            "top_n": None,
-            "constraints": [],
-            "filters": [],
-            "confidence": 0.92,
-            "reason": "Explicit range revenue per salesman",
-            "_requirements": requirements,
-            "_repairs_applied": 0,
-            "_question": question,
-            "_include_transactions": True
-        }
-        return plan
-    
-    def _heuristic_last_completed_quarter_comparison(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
-        """
-        Heuristic for "last completed quarter vs previous" per-salesman comparison queries.
-        """
-        question_raw = question or ""
-        question_lower = question_raw.lower()
-        tokens = self._tokenize_text(question)
-        if not tokens:
-            return None
-        if not self._contains_fuzzy_phrase(tokens, ["last", "completed", "quarter"], threshold=0.7):
-            return None
-        comparison_signal = (
-            self._contains_any_fuzzy_word(tokens, ["previous", "prior", "versus", "vs"], threshold=0.7)
-            or any(sym in question_raw for sym in ["Δ", "∆", "%Δ", "%∆"])
-            or any(term in question_lower for term in ["delta", "pct change", "pct-change", "% change", "percent change"])
-            or bool(re.search(r'include[^a-z0-9]{0,5}(delta|Δ|∆|percent|%|pct)', question_raw, re.IGNORECASE))
-        )
-        if not comparison_signal:
-            return None
-        salesman_keywords = ["salesman", "salesmen", "salesperson", "rep", "representative"]
-        if not self._contains_any_fuzzy_word(tokens, salesman_keywords, threshold=0.75):
-            return None
-        if not columns.get('salesman'):
-            return None
-        requirements = {
-            "group_by": ["salesman_name"],
-            "metrics": [{"name": "revenue", "agg": "SUM"}],
-            "time": {
-                "type": "comparison",
-                "axis": "quarter",
-                "span": "last_completed_quarter",
-                "explicit": None
-            },
-            "outputs": {"table": True, "delta": True, "pct_change": True, "share": False, "top_n": None},
-            "filters": [],
-            "presentation": {"sort": ["revenue:desc", "salesman_name:asc"]},
-            "confidence": 0.95,
-            "reason": "Quarter-over-quarter per salesman"
-        }
-        plan = {
-            "intent": "period_comparison",
-            "time_grain": "quarter",
-            "time_window": {"mode": "relative_to_dataset_max", "range": "last_completed_quarter"},
-            "compare": {"base": "last_completed_quarter", "previous_by": 1},
-            "entity": "salesman_name",
-            "measure": {"name": "revenue", "expr": "SUM(value)"},
-            "top_n": None,
-            "constraints": [],
-            "filters": [],
-            "confidence": 0.95,
-            "reason": "Quarter-over-quarter per salesman",
-            "_requirements": requirements,
-            "_repairs_applied": 0,
-            "_question": question
-        }
-        return plan
-    
-    def _heuristic_highest_revenue_day(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
-        """
-        Heuristic for questions asking for the highest revenue day in a given year.
-        """
-        q_lower = (question or "").lower()
-        if "highest revenue" not in q_lower or "day" not in q_lower:
-            return None
-        if not columns.get('date'):
-            return None
-        year_match = re.search(r'20\d{2}', question)
-        if year_match:
-            year = int(year_match.group(0))
-        else:
-            date_col = columns.get('date')
-            try:
-                dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
-                if dates.empty:
-                    return None
-                year = int(dates.max().year)
-            except Exception:
-                return None
-        start_date = pd.Timestamp(year=year, month=1, day=1)
-        end_exclusive = pd.Timestamp(year=year + 1, month=1, day=1)
-        requirements = {
-            "group_by": ["visit_date"],
-            "metrics": [{"name": "revenue", "agg": "SUM"}],
-            "time": {
-                "type": "range",
-                "axis": "day",
-                "span": "explicit_range",
-                "explicit": {
-                    "start": start_date.strftime('%Y-%m-%d'),
-                    "end": end_exclusive.strftime('%Y-%m-%d')
-                }
-            },
-            "outputs": {"table": True, "delta": False, "pct_change": False, "share": False, "top_n": 1},
-            "filters": [],
-            "presentation": {"sort": ["revenue:desc", "visit_date:asc"]},
-            "confidence": 0.92,
-            "reason": "Highest revenue day in year"
-        }
-        plan = {
-            "intent": "generic_agg",
-            "time_grain": "day",
-            "time_window": {
-                "mode": "explicit_range",
-                "explicit": {
-                    "start": start_date.strftime('%Y-%m-%d'),
-                    "end": end_exclusive.strftime('%Y-%m-%d')
-                }
-            },
-            "compare": None,
-            "entity": "visit_date",
-            "measure": {"name": "revenue", "expr": "SUM(value)"},
-            "top_n": 1,
-            "constraints": [],
-            "filters": [],
-            "confidence": 0.92,
-            "reason": "Highest revenue day in year",
-            "_requirements": requirements,
-            "_repairs_applied": 0,
-            "_question": question,
-            "_include_transactions": True
-        }
-        return plan
-    
-    def _heuristic_negative_revenue_months(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
-        """
-        Heuristic for questions about months with negative net revenue.
-        """
-        q_lower = (question or "").lower()
-        if "negative" not in q_lower or "month" not in q_lower:
-            return None
-        date_col = columns.get('date')
-        value_col = columns.get('amount')
-        if not date_col or not value_col:
-            return None
-        if date_col not in df.columns or value_col not in df.columns:
-            return None
-        try:
-            dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
-        except Exception:
-            return None
-        if dates.empty:
-            return None
-        from dateutil.relativedelta import relativedelta
-        start_date = dates.min().replace(day=1)
-        end_exclusive = dates.max().replace(day=1) + relativedelta(months=1)
-        start_str = start_date.strftime('%Y-%m-%d')
-        end_str = end_exclusive.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        include_share = 'share' in q_lower or '% share' in q_lower or 'percent' in q_lower
         
         requirements = {
-            "group_by": [],
+            "group_by": [entity],
             "metrics": [{"name": "revenue", "agg": "SUM"}],
             "time": {
-                "type": "range",
+                "type": "point",
                 "axis": "month",
                 "span": "explicit_range",
                 "explicit": {"start": start_str, "end": end_str}
             },
-            "outputs": {"table": True, "delta": False, "pct_change": False, "share": False, "top_n": None},
+            "outputs": {
+                "table": True,
+                "share": include_share,
+                "delta": False,
+                "pct_change": False,
+                "top_n": top_n
+            },
             "filters": [],
-            "presentation": {"sort": ["month:asc"]},
-            "confidence": 0.9,
-            "reason": "Detect months with negative net revenue"
+            "presentation": {"sort": ["revenue:desc", f"{entity}:asc"]},
+            "confidence": 0.6,
+            "reason": "Heuristic fallback requirements for explicit top-N month query",
+            "_question": question,
+            "_plan_source": "heuristic_top_month",
+            "_model_used": "heuristic"
         }
         
         plan = {
-            "intent": "timeseries",
+            "intent": "ranking",
             "time_grain": "month",
             "time_window": {
                 "mode": "explicit_range",
                 "explicit": {"start": start_str, "end": end_str}
             },
             "compare": None,
-            "entity": None,
-            "measure": {"name": "revenue", "expr": "SUM(value)"},
-            "top_n": None,
-            "constraints": [],
-            "filters": [],
-            "confidence": 0.9,
-            "reason": "Detect months with negative net revenue",
-            "_requirements": requirements,
-            "_repairs_applied": 0,
-            "_question": question,
-            "_negative_only": True
-        }
-        return plan
-    
-    def _heuristic_top_performers(self, question: str, columns: Dict[str, str], df: pd.DataFrame) -> Optional[dict]:
-        """Heuristic for queries like "Who are the top performers last quarter"."""
-        tokens = self._tokenize_text(question)
-        if not tokens:
-            return None
-        # Require fuzzy match for "top" and a performer keyword
-        if not self._contains_fuzzy_word(tokens, "top", threshold=0.75):
-            return None
-        performer_keywords = [
-            "performer", "performers", "seller", "sellers", "sales", "salesman",
-            "salesmen", "team", "rep", "reps", "representative"
-        ]
-        if not self._contains_any_fuzzy_word(tokens, performer_keywords, threshold=0.7):
-            return None
-        # Require last quarter phrasing
-        if not (
-            self._contains_fuzzy_phrase(tokens, ["last", "quarter"], threshold=0.7) or
-            self._contains_fuzzy_phrase(tokens, ["last", "completed", "quarter"], threshold=0.7)
-        ):
-            return None
-        if not columns.get('salesman'):
-            return None
-        date_col = columns.get('date', 'VISITDATE')
-        if date_col not in df.columns:
-            return None
-        dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
-        if dates.empty:
-            return None
-        dataset_max = dates.max().to_pydatetime()
-        from .query_plan_service import TimeFilter, TimeMode
-        from .time_resolver import TimeResolver
-        time_filter = TimeFilter(mode=TimeMode.LAST_COMPLETED_QUARTER)
-        start_date, end_exclusive, _ = TimeResolver.resolve_time_window(time_filter, dataset_max, dataset_max)
-        if start_date is None or end_exclusive is None:
-            return None
-        start_str = start_date.strftime('%Y-%m-%d')
-        end_str = end_exclusive.strftime('%Y-%m-%d')
-        # Determine requested top N (default 10)
-        top_n = None
-        match = re.search(r"top\s+(\d+)", (question or "").lower())
-        if match:
-            try:
-                top_n = int(match.group(1))
-            except Exception:
-                top_n = None
-        if not top_n:
-            top_n = 10
-        requirements = {
-            "group_by": ["salesman_name"],
-            "metrics": [{"name": "revenue", "agg": "SUM"}],
-            "time": {
-                "type": "point",
-                "axis": "quarter",
-                "span": "last_completed_quarter",
-                "explicit": {"start": start_str, "end": end_str}
-            },
-            "outputs": {"table": True, "delta": False, "pct_change": False, "share": False, "top_n": top_n},
-            "filters": [],
-            "presentation": {"sort": ["revenue:desc", "salesman_name:asc"]},
-            "confidence": 0.9,
-            "reason": "Top performers last completed quarter"
-        }
-        plan = {
-            "intent": "ranking",
-            "time_grain": "quarter",
-            "time_window": {
-                "mode": "explicit_range",
-                "explicit": {"start": start_str, "end": end_str}
-            },
-            "compare": None,
-            "entity": "salesman_name",
+            "entity": entity,
             "measure": {"name": "revenue", "expr": "SUM(value)"},
             "top_n": top_n,
             "constraints": [],
             "filters": [],
-            "confidence": 0.9,
-            "reason": "Top performers last completed quarter",
+            "confidence": 0.7,
+            "reason": "Heuristic fallback: top-N monthly ranking",
             "_requirements": requirements,
             "_repairs_applied": 0,
-            "_question": question
+            "_question": question,
+            "_plan_source": "heuristic_top_month",
+            "_model_used": "heuristic"
         }
-        return plan
-    
-    def _parse_explicit_date_range(self, question: str) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
-        """
-        Parse explicit YYYY-MM-DD date range from question text.
         
-        Returns start and end (inclusive) as pandas Timestamps if two dates found.
-        """
-        matches = re.findall(r'\b(20\d{2}-\d{2}-\d{2})\b', question)
-        if len(matches) < 2:
-            return None
-        try:
-            start = pd.to_datetime(matches[0])
-            end = pd.to_datetime(matches[1])
-            if end < start:
-                start, end = end, start
-            return start, end
-        except Exception:
-            return None
+        return plan
     
     def _check_gemini_availability(self) -> bool:
         """Check if Gemini API is available."""
         api_key = ConfigService.get_gemini_api_key()
         return api_key is not None
+    
+    def _extract_json_from_response(self, response_text: str) -> Optional[dict]:
+        """
+        Extract and parse JSON from LLM response text.
+        Handles markdown code blocks, nested JSON, and common formatting issues.
+        
+        Args:
+            response_text: Raw response text from LLM
+            
+        Returns:
+            Parsed JSON dict or None if extraction fails
+        """
+        if not response_text:
+            return None
+        
+        text = response_text.strip()
+        
+        # Remove markdown code blocks if present
+        if text.startswith('```'):
+            # Extract content between ```json and ```
+            parts = text.split('```')
+            for i, part in enumerate(parts):
+                if 'json' in part.lower() or (i > 0 and part.strip().startswith('{')):
+                    text = part
+                    if text.lower().startswith('json'):
+                        text = text[4:].strip()
+                    break
+            text = text.strip()
+        
+        # Try to find JSON object boundaries more robustly
+        # Look for first { and matching }
+        start_idx = text.find('{')
+        if start_idx == -1:
+            return None
+        
+        # Count braces to find matching closing brace
+        brace_count = 0
+        end_idx = start_idx
+        for i in range(start_idx, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    end_idx = i + 1
+                    break
+        
+        if brace_count != 0:
+            # Unmatched braces, try parsing whole text
+            json_str = text
+        else:
+            json_str = text[start_idx:end_idx]
+        
+        # Try to fix common JSON issues
+        # Remove trailing commas before closing braces/brackets
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+        
+        # Try parsing
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # Log the error and the problematic text for debugging
+            ErrorHandlingService.log_error(
+                f"JSON extraction failed: {str(e)}. Text snippet: {json_str[:200]}",
+                category=ErrorCategory.DATA_PROCESSING
+            )
+            # Try parsing the whole response as fallback
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return None
     
     def _track_quota_usage(self, model_name: str) -> None:
         """Track API quota usage for monitoring."""
@@ -925,6 +639,47 @@ ORDER BY total_revenue DESC, salesman_name ASC
 LIMIT 10
 \"\"\"}}
 
+Q: "Which salesmen need coaching based on their performance? Provide recommendations."
+{{"sql": "\"\"\"
+WITH dataset_bounds AS (
+  SELECT DATE_TRUNC('quarter', MAX(visit_date)) AS current_q_start
+  FROM sales_norm
+),
+periods AS (
+  SELECT
+    current_q_start - INTERVAL 3 MONTH AS prev_start,
+    current_q_start AS prev_end,
+    current_q_start AS curr_start,
+    current_q_start + INTERVAL 3 MONTH AS curr_end
+  FROM dataset_bounds
+),
+current_q AS (
+  SELECT salesman_name, SUM(value) AS curr_revenue
+  FROM sales_norm, periods
+  WHERE visit_date >= periods.curr_start AND visit_date < periods.curr_end
+  GROUP BY salesman_name
+),
+prev_q AS (
+  SELECT salesman_name, SUM(value) AS prev_revenue
+  FROM sales_norm, periods
+  WHERE visit_date >= periods.prev_start AND visit_date < periods.prev_end
+  GROUP BY salesman_name
+)
+SELECT
+  COALESCE(c.salesman_name, p.salesman_name) AS salesman_name,
+  ROUND(COALESCE(c.curr_revenue, 0), 2) AS current_revenue,
+  ROUND(COALESCE(p.prev_revenue, 0), 2) AS previous_revenue,
+  ROUND(COALESCE(c.curr_revenue, 0) - COALESCE(p.prev_revenue, 0), 2) AS delta,
+  CASE
+    WHEN COALESCE(p.prev_revenue, 0) = 0 THEN NULL
+    ELSE ROUND((COALESCE(c.curr_revenue, 0) - COALESCE(p.prev_revenue, 0)) / NULLIF(p.prev_revenue, 0) * 100, 2)
+  END AS pct_change
+FROM current_q c
+FULL OUTER JOIN prev_q p USING (salesman_name)
+ORDER BY delta ASC, salesman_name ASC
+LIMIT 10
+\"\"\"}}
+
 SCHEMA:
 {json.dumps(schema, indent=2, ensure_ascii=False)}
 
@@ -952,6 +707,7 @@ Return JSON only with either "sql" or "clarify" key:
                     return {"clarify": f"LLM returned non-dict response: {type(plan).__name__}"}
                 # Add model info to response
                 plan["model_used"] = model_name
+                plan["plan_source"] = "llm_sql"
                 return plan
             except json.JSONDecodeError as e:
                 # If JSON parsing fails, return clarify
@@ -974,7 +730,6 @@ Return JSON only with either "sql" or "clarify" key:
                 # Extract retry delay if available
                 retry_delay = None
                 if 'retry' in error_lower or 'delay' in error_lower:
-                    import re
                     delay_match = re.search(r'(\d+\.?\d*)\s*(?:seconds?|s)', error_lower)
                     if delay_match:
                         retry_delay = float(delay_match.group(1))
@@ -1312,11 +1067,17 @@ Return JSON only with either "sql" or "clarify" key:
             "confidence": None,
             "schema_valid": True,
             "model_used": None,  # Track which Gemini model was used
-            "model_index": self._current_model_index  # Track model selection index
+            "model_index": self._current_model_index,  # Track model selection index
+            "plan_source": None,
+            "heuristic_used": None,
+            "llm_available": bool(self.use_llm and not self.llm_auto_fallback_enabled),
+            "llm_degraded": bool(self.llm_auto_fallback_enabled)
         }
         
         def _finalize():
             """Attach wall-clock duration to observability payload before returning."""
+            obs["llm_available"] = bool(self.use_llm and not self.llm_auto_fallback_enabled)
+            obs["llm_degraded"] = bool(self.llm_auto_fallback_enabled)
             obs["duration_ms"] = int((time.time() - start_time) * 1000)
         
         # Ensure columns is a dictionary (not a string or other type)
@@ -1404,7 +1165,15 @@ Return JSON only with either "sql" or "clarify" key:
                 obs["plan"] = plan_clean
                 obs["requirements"] = requirements
                 obs["repairs_applied"] = repairs_applied
-                obs["model_used"] = "heuristic"  # Deterministic plans use heuristics, not LLM
+                plan_source = plan.get('_plan_source')
+                if plan_source:
+                    obs["plan_source"] = plan_source
+                    if plan_source.startswith("heuristic"):
+                        obs["heuristic_used"] = plan_source
+                plan_model = plan.get('_model_used')
+                if not plan_model and plan_source and plan_source.startswith("heuristic"):
+                    plan_model = "heuristic"
+                obs["model_used"] = plan_model
                 
                 print(f"[SQLGenerationService] Query plan detected: {intent}, confidence: {confidence:.2f}")
                 
@@ -1733,6 +1502,13 @@ Return JSON only with either "sql" or "clarify" key:
             # Capture model used from generate_sql result
             if isinstance(plan, dict) and "model_used" in plan:
                 obs["model_used"] = plan["model_used"]
+            if isinstance(plan, dict):
+                plan_source = plan.get("plan_source") or plan.get("_plan_source")
+                if not plan_source:
+                    plan_source = "llm_sql"
+                obs["plan_source"] = plan_source
+                if plan_source and plan_source.startswith("heuristic"):
+                    obs["heuristic_used"] = plan_source
             
             # Ensure plan is a dictionary
             if not isinstance(plan, dict):
@@ -1790,6 +1566,10 @@ Return JSON only with either "sql" or "clarify" key:
                     result_df = fallback_result
                     obs["fallback_used"] = True
                     obs["sql"] = f"{sql} (fallback: local computation)"
+                    if not obs.get("heuristic_used"):
+                        obs["heuristic_used"] = "local_constraint_fallback"
+                    if not obs.get("plan_source") and obs.get("heuristic_used"):
+                        obs["plan_source"] = obs["heuristic_used"]
             
             # Generate result hash for caching
             if not result_df.empty:
@@ -2045,26 +1825,14 @@ Return only the JSON:"""
             response = model.generate_content(prompt)
             response_text = response.text.strip()
             
-            # Extract JSON from response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    plan = json.loads(json_match.group(0))
-                    # Validate plan structure
-                    if plan.get('intent') == 'constraint_timeseries' and plan.get('confidence', 0) >= 0.6:
-                        # Success: reset failure count
-                        self.llm_failure_count = 0
-                        return plan
-                except json.JSONDecodeError:
-                    # Try parsing the whole response
-                    try:
-                        plan = json.loads(response_text)
-                        if plan.get('intent') == 'constraint_timeseries' and plan.get('confidence', 0) >= 0.6:
-                            # Success: reset failure count
-                            self.llm_failure_count = 0
-                            return plan
-                    except json.JSONDecodeError:
-                        pass
+            # Extract and parse JSON from response
+            plan = self._extract_json_from_response(response_text)
+            if plan and isinstance(plan, dict):
+                # Validate plan structure
+                if plan.get('intent') == 'constraint_timeseries' and plan.get('confidence', 0) >= 0.6:
+                    # Success: reset failure count
+                    self.llm_failure_count = 0
+                    return plan
             
             # Check latency threshold
             latency = time.time() - start_time
@@ -2222,6 +1990,56 @@ Q: "Who are the top performers last quarter"
   "confidence": 0.85,
   "reason": "Top performers implies ranking with default top_n=10"
 }}
+Q: "Which salesmen need coaching based on their performance? Provide recommendations."
+{{
+  "group_by": ["salesman_name"],
+  "metrics": [{{"name": "revenue", "agg": "SUM"}}],
+  "time": {{
+    "type": "comparison",
+    "axis": "quarter",
+    "span": "last_completed_quarter",
+    "explicit": null
+  }},
+  "outputs": {{"table": true, "delta": true, "pct_change": true, "share": false, "top_n": null}},
+  "filters": [],
+  "presentation": {{"sort": ["delta:asc", "salesman_name:asc"]}},
+  "confidence": 0.9,
+  "reason": "Coaching query comparing the last completed quarter to the prior quarter"
+}}
+
+Q: "Who is the best salesman based on total sales? Provide specific numbers."
+{{
+  "group_by": ["salesman_name"],
+  "metrics": [{{"name": "revenue", "agg": "SUM"}}],
+  "time": {{
+    "type": "range",
+    "axis": "all",
+    "span": "all",
+    "explicit": null
+  }},
+  "outputs": {{"table": true, "delta": false, "pct_change": false, "share": false, "top_n": 1}},
+  "filters": [],
+  "presentation": {{"sort": ["revenue:desc", "salesman_name:asc"]}},
+  "confidence": 0.9,
+  "reason": "All-time ranking query for best salesman (top_n=1)"
+}}
+
+Q: "Monthly revenue for the last six calendar months based on the latest date in the data. Include months with zero sales and mark the highest"
+{{
+  "group_by": [],
+  "metrics": [{{"name": "revenue", "agg": "SUM"}}],
+  "time": {{
+    "type": "range",
+    "axis": "month",
+    "span": "last_6_calendar_months",
+    "explicit": null
+  }},
+  "outputs": {{"table": true, "delta": false, "pct_change": false, "share": false, "top_n": null}},
+  "filters": [],
+  "presentation": {{"sort": ["revenue:desc"]}},
+  "confidence": 0.9,
+  "reason": "Timeseries query for last 6 months with zero-fill and peak marking"
+}}
 
 Q: "Show me sales by brand"
 {{
@@ -2247,27 +2065,16 @@ Return only the JSON:"""
             response = model.generate_content(prompt)
             response_text = response.text.strip()
             
-            # Extract JSON from response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    requirements = json.loads(json_match.group(0))
-                    # Validate basic structure
-                    if isinstance(requirements, dict) and 'group_by' in requirements:
-                        # Success: reset failure count
-                        self.llm_failure_count = 0
-                        return requirements
-                except json.JSONDecodeError:
-                    pass
-            
-            # Try parsing the whole response
-            try:
-                requirements = json.loads(response_text)
-                if isinstance(requirements, dict) and 'group_by' in requirements:
-                    self.llm_failure_count = 0
-                    return requirements
-            except json.JSONDecodeError:
-                pass
+            # Extract and parse JSON from response
+            requirements = self._extract_json_from_response(response_text)
+            if requirements and isinstance(requirements, dict) and 'group_by' in requirements:
+                # Success: reset failure count
+                self.llm_failure_count = 0
+                requirements["_question"] = question
+                requirements["_model_used"] = model_name
+                requirements["_llm_latency_ms"] = int((time.time() - start_time) * 1000)
+                requirements["_plan_source"] = "llm"
+                return requirements
             
             # Check latency
             latency = time.time() - start_time
@@ -2335,6 +2142,7 @@ Return ONLY the JSON.
 Mapping rules (structure-based, no keyword matching):
 - If requirements.time.type == "comparison" → intent = "period_comparison", set time_grain to requirements.time.axis, and fill compare block.
 - If requirements.time.type == "point" AND requirements.outputs.top_n is set → intent = "ranking", set time_grain to requirements.time.axis, set compare = null, set top_n from requirements.outputs.top_n.
+- If the question mentions coaching, underperformers, or needs improvement → intent = "period_comparison" with time_grain "quarter", compare base=last_completed_quarter vs previous, and sort by delta ascending.
 - If group_by is set (e.g., ["brand_name"]) AND time.type="point" AND outputs.top_n is set → intent MUST be "ranking" (NOT "timeseries").
 - If constraint "exactly one salesman active in month" → intent = "constraint_timeseries" with time_grain="month".
 - Otherwise → intent = "generic_agg" or "timeseries".
@@ -2367,6 +2175,35 @@ Plan (correct):
   "reason": "Top-2 ranking with share for specific month"
 }}
 
+Requirements (coaching):
+{{
+  "group_by": ["salesman_name"],
+  "metrics": [{{"name":"revenue","agg":"SUM"}}],
+  "time": {{
+    "type": "comparison",
+    "axis": "quarter",
+    "span": "last_completed_quarter",
+    "explicit": null
+  }},
+  "outputs": {{"table":true,"delta":true,"pct_change":true,"top_n":null}},
+  "presentation": {{"sort":["delta:asc","salesman_name:asc"]}}
+}}
+
+Plan (coaching):
+{{
+  "intent": "period_comparison",
+  "time_grain": "quarter",
+  "time_window": {{"mode":"relative_to_dataset_max",
+    "range":"last_completed_quarter"}},
+  "compare": {{"base":"last_completed_quarter","previous_by":1}},
+  "entity": "salesman_name",
+  "measure": {{"name":"revenue","expr":"SUM(value)"}},
+  "constraints": [],
+  "filters": [],
+  "confidence": 0.9,
+  "reason": "Identify underperformers needing coaching"
+}}
+
 Requirements (negative - DO NOT map to timeseries):
 {{
   "group_by": ["brand_name"],
@@ -2391,25 +2228,14 @@ Return only the JSON:"""
             response = model.generate_content(prompt)
             response_text = response.text.strip()
             
-            # Extract JSON from response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    plan = json.loads(json_match.group(0))
-                    if isinstance(plan, dict) and 'intent' in plan:
-                        self.llm_failure_count = 0
-                        return plan
-                except json.JSONDecodeError:
-                    pass
-            
-            # Try parsing the whole response
-            try:
-                plan = json.loads(response_text)
-                if isinstance(plan, dict) and 'intent' in plan:
-                    self.llm_failure_count = 0
-                    return plan
-            except json.JSONDecodeError:
-                pass
+            # Extract and parse JSON from response
+            plan = self._extract_json_from_response(response_text)
+            if plan and isinstance(plan, dict) and 'intent' in plan:
+                self.llm_failure_count = 0
+                plan["_model_used"] = model_name
+                plan["_llm_latency_ms"] = int((time.time() - start_time) * 1000)
+                plan["_plan_source"] = "llm"
+                return plan
             
             # Check latency
             latency = time.time() - start_time
@@ -2448,11 +2274,20 @@ Return only the JSON:"""
         wants_share = bool(out.get("share"))
         axis = (t or {}).get("axis")
         time_type = (t or {}).get("type")
+        span = (t or {}).get("span")
+        
+        # Ranking query structure:
+        # - Has group_by (grouping entities)
+        # - Has top_n or share (ranking output)
+        # - Time is either:
+        #   a) point time with month/quarter axis (single period ranking)
+        #   b) range with span="all" (all-time ranking)
+        is_point_time = time_type == "point" and axis in {"month", "quarter"}
+        is_all_time = time_type == "range" and span == "all"
         
         return bool(
             group_by
-            and time_type == "point"
-            and axis in {"month", "quarter"}
+            and (is_point_time or is_all_time)
             and (wants_top_n or wants_share)
         )
     
@@ -2470,12 +2305,21 @@ Return only the JSON:"""
         # 1) Ranking enforcement (structure-based)
         if self._wants_ranking(requirements):
             original_intent = plan.get('intent')
-            # Use the requested axis if provided, default to month
-            axis = (requirements.get('time') or {}).get('axis') or 'month'
+            time_req = requirements.get('time', {})
+            # For all-time queries (range + all), time_grain can be null
+            # For point time, use the axis
+            if time_req.get('type') == 'range' and time_req.get('span') == 'all':
+                time_grain = None
+                time_window = {"mode": "relative_to_dataset_max", "range": "all"}
+            else:
+                time_grain = time_req.get('axis') or 'month'
+                time_window = plan.get('time_window')
+            
             plan = {
                 **plan,
                 "intent": "ranking",
-                "time_grain": axis,
+                "time_grain": time_grain,
+                "time_window": time_window,
                 "compare": None
             }
             # Ensure top_n is set from requirements if available
@@ -2487,7 +2331,7 @@ Return only the JSON:"""
                 gb = requirements.get('group_by') or []
                 if gb:
                     plan['entity'] = gb[0]
-            print(f"[SQLGenerationService] Enforced plan to 'ranking' (from {original_intent}): group_by={requirements.get('group_by')}, axis={axis}, top_n={plan.get('top_n')}")
+            print(f"[SQLGenerationService] Enforced plan to 'ranking' (from {original_intent}): group_by={requirements.get('group_by')}, time_grain={time_grain}, top_n={plan.get('top_n')}")
         
         # 2) Period comparison enforcement (no keywords; driven by structure)
         time_req = requirements.get('time', {}) or {}
@@ -2609,23 +2453,10 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
             response = model.generate_content(prompt)
             response_text = response.text.strip()
             
-            # Extract JSON
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    repaired_plan = json.loads(json_match.group(0))
-                    if isinstance(repaired_plan, dict) and 'intent' in repaired_plan:
-                        return repaired_plan
-                except json.JSONDecodeError:
-                    pass
-            
-            # Try parsing whole response
-            try:
-                repaired_plan = json.loads(response_text)
-                if isinstance(repaired_plan, dict) and 'intent' in repaired_plan:
-                    return repaired_plan
-            except json.JSONDecodeError:
-                pass
+            # Extract and parse JSON from response
+            repaired_plan = self._extract_json_from_response(response_text)
+            if repaired_plan and isinstance(repaired_plan, dict) and 'intent' in repaired_plan:
+                return repaired_plan
             
             return None
         except Exception:
@@ -2727,7 +2558,15 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
             axis = time_req.get('axis')
             time_filter: Optional[TimeFilter] = None
             
-            if span == 'last_completed_quarter':
+            if span == 'all':
+                # All-time query: check if time_window already has explicit range set
+                if isinstance(time_window, dict) and time_window.get('mode') == 'explicit_range':
+                    explicit_all = time_window.get('explicit', {})
+                    if explicit_all.get('start') and explicit_all.get('end'):
+                        start_date = pd.to_datetime(explicit_all['start'])
+                        end_date_exclusive = pd.to_datetime(explicit_all['end'])
+                # Otherwise, we'll need to resolve from dataset bounds (handled by executor)
+            elif span == 'last_completed_quarter':
                 time_filter = TimeFilter(mode=TimeMode.LAST_COMPLETED_QUARTER)
             elif span == 'last_6_calendar_months':
                 time_filter = TimeFilter(mode=TimeMode.LAST_N_MONTHS, n_months=6)
@@ -3110,29 +2949,133 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
                 }
         
         if not start_date_str or not end_date_str:
-            time_filter = TimeFilter(mode=TimeMode.LAST_MONTH)
-            start_date, end_date_excl, _ = TimeResolver.resolve_time_window(
-                time_filter, dataset_max_date, dataset_max_date
-            )
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date_excl.strftime('%Y-%m-%d')
-            # Update time_window to explicit range for downstream usage
-            time_window = {
-                'mode': 'explicit_range',
-                'explicit': {'start': start_date_str, 'end': end_date_str}
-            }
+            dataset_start = dates.min().normalize()
+            dataset_end = dates.max().normalize() + pd.Timedelta(days=1)
+            if pd.notna(dataset_start) and pd.notna(dataset_end):
+                start_date_str = dataset_start.strftime('%Y-%m-%d')
+                end_date_str = dataset_end.strftime('%Y-%m-%d')
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
+            else:
+                time_filter = TimeFilter(mode=TimeMode.LAST_MONTH)
+                start_date, end_date_excl, _ = TimeResolver.resolve_time_window(
+                    time_filter, dataset_max_date, dataset_max_date
+                )
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date_excl.strftime('%Y-%m-%d')
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
         
         # Get top_n from plan or requirements
         top_n = plan.get('top_n') or plan.get('limit') or 10  # Default to 10
+        ranking_order = str(plan.get('_order', 'desc')).lower()
+        primary_order = 'ASC' if ranking_order == 'asc' else 'DESC'
         
         start_date_obj = pd.to_datetime(start_date_str)
         end_date_obj = pd.to_datetime(end_date_str)
+        
+        # Detect "overall/total" phrasing to expand window to full dataset
+        question_text = str(
+            plan.get('_question')
+            or (requirements or {}).get('_question')
+            or ""
+        ).lower()
+        total_phrases = [
+            "total sales",
+            "total revenue",
+            "overall",
+            "all time",
+            "entire dataset",
+            "whole dataset",
+            "lifetime",
+            "cumulative"
+        ]
+        period_tokens = [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept",
+            "oct", "nov", "dec", "month", "quarter", "week", "today", "yesterday",
+            "last", "past", "current", "recent", "ago", "year", "q1", "q2", "q3", "q4",
+            "2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029"
+        ]
+        mentions_total = any(phrase in question_text for phrase in total_phrases)
+        mentions_specific_period = any(token in question_text for token in period_tokens)
+        wants_full_dataset = mentions_total and not mentions_specific_period
+        
+        if wants_full_dataset:
+            dataset_start = dates.min().normalize()
+            dataset_end = dates.max().normalize() + pd.Timedelta(days=1)
+            if pd.notna(dataset_start) and pd.notna(dataset_end):
+                start_date_obj = dataset_start
+                end_date_obj = dataset_end
+                start_date_str = dataset_start.strftime('%Y-%m-%d')
+                end_date_str = dataset_end.strftime('%Y-%m-%d')
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
+                plan['time_window'] = time_window
+                if isinstance(requirements, dict):
+                    time_req = requirements.setdefault('time', {})
+                    time_req.update({
+                        'type': 'range',
+                        'axis': 'all',
+                        'span': 'all',
+                        'explicit': {'start': start_date_str, 'end': end_date_str}
+                    })
+                    plan['_requirements'] = requirements
+                else:
+                    plan['_requirements'] = {
+                        'time': {
+                            'type': 'range',
+                            'axis': 'all',
+                            'span': 'all',
+                            'explicit': {'start': start_date_str, 'end': end_date_str}
+                        }
+                    }
+        
         single_month_window = (
             time_grain == 'month'
             and start_date_obj.day == 1
             and end_date_obj == (start_date_obj + pd.offsets.MonthBegin(1))
         )
         
+        if single_month_window and wants_full_dataset:
+            dataset_start = dates.min().normalize()
+            dataset_end = dates.max().normalize() + pd.Timedelta(days=1)
+            if pd.notna(dataset_start) and pd.notna(dataset_end):
+                start_date_obj = dataset_start
+                end_date_obj = dataset_end
+                start_date_str = dataset_start.strftime('%Y-%m-%d')
+                end_date_str = dataset_end.strftime('%Y-%m-%d')
+                single_month_window = False
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
+                plan['time_window'] = time_window
+                if isinstance(requirements, dict):
+                    time_req = requirements.setdefault('time', {})
+                    time_req.update({
+                        'type': 'range',
+                        'axis': 'all',
+                        'span': 'all',
+                        'explicit': {'start': start_date_str, 'end': end_date_str}
+                    })
+                if isinstance(requirements, dict):
+                    plan['_requirements'] = requirements
+                else:
+                    plan['_requirements'] = {
+                        'time': {
+                            'type': 'range',
+                            'axis': 'all',
+                            'span': 'all',
+                            'explicit': {'start': start_date_str, 'end': end_date_str}
+                        }
+                    }
+
         # Determine if share is requested
         requirements = plan.get('_requirements', {})
         outputs = requirements.get('outputs', {}) if isinstance(requirements, dict) else {}
@@ -3160,7 +3103,8 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
                     start_date_obj.year,
                     start_date_obj.month,
                     top_n,
-                    include_share
+                    include_share,
+                    order=primary_order
                 )
                 result = con.execute(sql).fetchdf()
                 month_total_query = f"""
@@ -3206,7 +3150,7 @@ SELECT
   ROUND(revenue / NULLIF(t.total_revenue, 0) * 100, 2) AS pct_share
 FROM joined
 CROSS JOIN totals t
-ORDER BY revenue DESC, {entity_col_norm} ASC
+ORDER BY revenue {primary_order}, {entity_col_norm} ASC
 {limit_clause}
 """
                 else:
@@ -3231,7 +3175,7 @@ LEFT JOIN (
     AND visit_date < params.end_date
   GROUP BY {entity_col_norm}
 ) r USING (entity)
-ORDER BY revenue DESC, {entity_col_norm} ASC
+ORDER BY revenue {primary_order}, {entity_col_norm} ASC
 {limit_clause}
 """
                 result = con.execute(sql).fetchdf()
@@ -3515,7 +3459,15 @@ ORDER BY revenue DESC, {entity_col_norm} ASC
         result.attrs['end_date_exclusive'] = end_str
         return result
     
-    def _sql_top_n_group_for_month(self, group_col: str, year: int, month: int, n: int = 2, include_share: bool = True) -> str:
+    def _sql_top_n_group_for_month(
+        self,
+        group_col: str,
+        year: int,
+        month: int,
+        n: int = 2,
+        include_share: bool = True,
+        order: str = 'DESC'
+    ) -> str:
         """
         Generate deterministic SQL for top-N ranking within a specific month.
         
@@ -3531,6 +3483,7 @@ ORDER BY revenue DESC, {entity_col_norm} ASC
         """
         # Start inclusive, end exclusive (using INTERVAL for month boundaries)
         share_clause = ', ROUND(revenue / NULLIF(mt.total, 0) * 100, 2) AS pct_share' if include_share else ''
+        order_sql = 'ASC' if str(order).upper() == 'ASC' else 'DESC'
         
         sql = f"""
 WITH month_total AS (
@@ -3551,7 +3504,7 @@ SELECT
   ROUND(revenue, 2) AS revenue{share_clause}
 FROM group_rev gr
 CROSS JOIN month_total mt
-ORDER BY revenue DESC, {group_col} ASC
+ORDER BY revenue {order_sql}, {group_col} ASC
 LIMIT {int(n)}
 """
         return sql.strip()
@@ -3753,6 +3706,10 @@ LIMIT {int(n)}
                 plan['_repairs_applied'] = repairs_applied
                 plan['_question'] = question  # Store original question for date extraction
                 plan['_original_intent'] = plan.get('intent')  # Track original intent before enforcement
+                if '_plan_source' not in plan:
+                    plan['_plan_source'] = 'llm'
+                if requirements and requirements.get('_model_used') and '_model_used' not in plan:
+                    plan['_model_used'] = requirements['_model_used']
                 
                 # CRITICAL: Final enforcement before returning (after validation)
                 plan = self._enforce_plan(requirements, plan)
@@ -3765,21 +3722,15 @@ LIMIT {int(n)}
         
         # Heuristic fallbacks (ONLY when LLM is unavailable/degraded or confidence too low)
         # These are true fallbacks, not preemptive hardcoding
-        if (not plan) or (confidence < 0.6) or self.llm_auto_fallback_enabled or not self.use_llm:
-            heuristic_candidates = [
-                self._heuristic_detect_month_ranking(question, columns, df),
-                self._heuristic_salesman_range_totals(question, columns, df),
-                self._heuristic_last_completed_quarter_comparison(question, columns, df),
-                self._heuristic_highest_revenue_day(question, columns, df),
-                self._heuristic_top_performers(question, columns, df),
-            ]
-            for h_plan in heuristic_candidates:
-                if not h_plan:
-                    continue
-                is_valid, error_msg = self._validate_query_plan(h_plan, columns, df)
-                if is_valid:
-                    enforced = self._enforce_plan(h_plan.get('_requirements'), h_plan)
-                    return enforced
+        
+        # Heuristic fallback for explicit top-N monthly ranking queries
+        ranking_plan = self._heuristic_build_month_ranking_plan(question, columns, df)
+        if ranking_plan:
+            is_valid, error_msg = self._validate_query_plan(ranking_plan, columns, df)
+            if is_valid:
+                return ranking_plan
+            else:
+                print(f"[SQLGenerationService] Heuristic ranking plan invalid: {error_msg}")
         
         # Fallback to heuristic for constraint_timeseries queries only
         heuristic_match = self._heuristic_detect_single_salesman_month(question)
@@ -3799,7 +3750,9 @@ LIMIT {int(n)}
                 "filters": [],
                 "time_window": {"mode": "relative_to_dataset_max", "range": "all"},
                 "confidence": 0.5,  # Lower confidence for heuristic
-                "reason": "Heuristic fallback detected"
+                "reason": "Heuristic fallback detected",
+                "_plan_source": "heuristic_single_salesman",
+                "_model_used": "heuristic"
             }
             is_valid, error_msg = self._validate_query_plan(plan, columns, df)
             if is_valid:

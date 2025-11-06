@@ -114,7 +114,10 @@ class AIService:
                                 peak_period=observability.get("peak_period"),
                                 peak_value=observability.get("peak_value"),
                                 period_bounds=observability.get("period_bounds"),
-                                model_used=observability.get("model_used")
+                                model_used=observability.get("model_used"),
+                                plan_source=observability.get("plan_source"),
+                                llm_available=observability.get("llm_available"),
+                                heuristic_used=observability.get("heuristic_used")
                             )
                             
                             # Add CSV/Copy functionality if it's a table result
@@ -196,7 +199,10 @@ class AIService:
         peak_period: str | None = None,
         peak_value: float | None = None,
         period_bounds: tuple[str, str] | None = None,
-        model_used: str | None = None
+        model_used: str | None = None,
+        plan_source: str | None = None,
+        llm_available: bool | None = None,
+        heuristic_used: str | None = None
     ) -> str:
         """
         Format SQL result DataFrame into readable markdown.
@@ -213,6 +219,9 @@ class AIService:
             peak_value: Optional numeric value associated with peak_period
             period_bounds: Optional tuple of (start, end_exclusive) bounds
             model_used: Optional Gemini model name used for LLM queries
+            plan_source: Source of the plan (llm, heuristic, etc.)
+            llm_available: Whether LLM was available for this run
+            heuristic_used: Name of heuristic applied (if any)
         
         Returns:
             Formatted markdown string
@@ -226,6 +235,17 @@ class AIService:
             return f"## Query Results{period_info}\n\nNo data found for this query."
         
         output = ["## Query Results\n"]
+        
+        def _describe_label(value: str | None) -> str | None:
+            if not value:
+                return None
+            mapping = {
+                "llm": "LLM planner (requirements → plan)",
+                "llm_sql": "LLM SQL generation",
+                "heuristic_top_month": "Heuristic – Top-N month ranking",
+                "heuristic_single_salesman": "Heuristic – Single active salesman month",
+            }
+            return mapping.get(value, value.replace("_", " ").title())
         
         # Kill-switch banner: show if LLM is degraded
         if st.session_state.get('llm_degraded', False):
@@ -297,6 +317,15 @@ class AIService:
         # Add execution details
         if executor:
             output.append(f"*Executor used: {executor}*\n\n")
+        if plan_source:
+            described = _describe_label(plan_source)
+            output.append(f"*Plan source: {described or plan_source}*\n\n")
+        if heuristic_used:
+            described = _describe_label(heuristic_used)
+            output.append(f"*Heuristic: {described or heuristic_used}*\n\n")
+        if llm_available is not None:
+            availability = "Enabled" if llm_available else "Disabled (fallback)"
+            output.append(f"*LLM availability: {availability}*\n\n")
         # Add model information
         if model_used:
             if model_used == "heuristic":
