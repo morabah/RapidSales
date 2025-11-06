@@ -3045,95 +3045,173 @@ Return ONLY the fixed PLAN JSON (same schema as PLAN):"""
                             }
                         }
         
-        # Resolve date bounds
+        start_date_str = None
+        end_date_str = None
         if time_window.get('mode') == 'explicit_range':
             explicit = time_window.get('explicit', {})
             start_str = explicit.get('start')
             end_str = explicit.get('end')
             if start_str and end_str:
-                # Parse dates (end_str is already exclusive in requirements, use >= and < for consistency)
                 start_date = pd.to_datetime(start_str)
                 end_date = pd.to_datetime(end_str)
                 start_date_str = start_date.strftime('%Y-%m-%d')
-                end_date_str = end_date.strftime('%Y-%m-%d')  # Keep exclusive for < comparison
-            else:
-                return pd.DataFrame()
-        else:
-            # Use TimeResolver for relative dates (fallback to last month)
+                end_date_str = end_date.strftime('%Y-%m-%d')
+        elif time_window.get('mode') == 'relative_to_dataset_max':
+            range_mode = time_window.get('range')
+            if range_mode == 'all':
+                start_date = dates.min().normalize()
+                end_date = dates.max().normalize() + pd.Timedelta(days=1)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
+            elif range_mode == 'last_completed_quarter':
+                time_filter = TimeFilter(mode=TimeMode.LAST_COMPLETED_QUARTER)
+                start_date, end_date_excl, _ = TimeResolver.resolve_time_window(
+                    time_filter, dataset_max_date, dataset_max_date
+                )
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date_excl.strftime('%Y-%m-%d')
+                time_window = {
+                    'mode': 'explicit_range',
+                    'explicit': {'start': start_date_str, 'end': end_date_str}
+                }
+        
+        if not start_date_str or not end_date_str:
             time_filter = TimeFilter(mode=TimeMode.LAST_MONTH)
-            start_date, end_date_excl, label = TimeResolver.resolve_time_window(
+            start_date, end_date_excl, _ = TimeResolver.resolve_time_window(
                 time_filter, dataset_max_date, dataset_max_date
             )
             start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date_excl.strftime('%Y-%m-%d')  # Keep exclusive for < comparison
+            end_date_str = end_date_excl.strftime('%Y-%m-%d')
+            # Update time_window to explicit range for downstream usage
+            time_window = {
+                'mode': 'explicit_range',
+                'explicit': {'start': start_date_str, 'end': end_date_str}
+            }
         
         # Get top_n from plan or requirements
         top_n = plan.get('top_n') or plan.get('limit') or 10  # Default to 10
         
+        start_date_obj = pd.to_datetime(start_date_str)
+        end_date_obj = pd.to_datetime(end_date_str)
+        single_month_window = (
+            time_grain == 'month'
+            and start_date_obj.day == 1
+            and end_date_obj == (start_date_obj + pd.offsets.MonthBegin(1))
+        )
+        
+        # Determine if share is requested
+        requirements = plan.get('_requirements', {})
+        outputs = requirements.get('outputs', {}) if isinstance(requirements, dict) else {}
+        include_share = bool(outputs.get('share'))
+        if plan.get('intent') == 'share':
+            include_share = True
+        
         # Use DuckDB with normalized view
         con = duckdb.connect()
         try:
-            # Register DataFrame and create normalized view if needed
             con.register("sales", df)
-            
-            # Check if normalized view exists, create if not
             view_exists = False
             try:
                 con.execute("SELECT 1 FROM sales_norm LIMIT 1")
                 view_exists = True
-            except:
+            except Exception:
                 pass
-            
             if not view_exists:
                 self._create_normalized_view(con, df, columns)
+            entity_col_norm = entity_col_name
             
-            # Map entity name to normalized column name
-            entity_col_norm = entity_col_name  # Already in snake_case format
+            if single_month_window:
+                sql = self._sql_top_n_group_for_month(
+                    entity_col_norm,
+                    start_date_obj.year,
+                    start_date_obj.month,
+                    top_n,
+                    include_share
+                )
+                result = con.execute(sql).fetchdf()
+                month_total_query = f"""
+                SELECT SUM(value) AS total
+                FROM sales_norm
+                WHERE visit_date >= DATE '{start_date_obj.year:04d}-{start_date_obj.month:02d}-01'
+                  AND visit_date < (DATE '{start_date_obj.year:04d}-{start_date_obj.month:02d}-01' + INTERVAL 1 MONTH)
+                """
+                month_total_result = con.execute(month_total_query).fetchdf()
+                if not month_total_result.empty and 'total' in month_total_result.columns:
+                    result.attrs['month_total'] = float(month_total_result['total'].iloc[0])
+            else:
+                limit_clause = f"LIMIT {int(top_n)}" if top_n else ""
+                if include_share:
+                    sql = f"""
+WITH params AS (
+  SELECT DATE '{start_date_str}'::DATE AS start_date,
+         DATE '{end_date_str}'::DATE AS end_date
+),
+entities AS (
+  SELECT DISTINCT {entity_col_norm} AS entity
+  FROM sales_norm
+),
+revenues AS (
+  SELECT {entity_col_norm} AS entity,
+         SUM(value) AS revenue
+  FROM sales_norm, params
+  WHERE visit_date >= params.start_date
+    AND visit_date < params.end_date
+  GROUP BY {entity_col_norm}
+),
+joined AS (
+  SELECT e.entity, COALESCE(r.revenue, 0) AS revenue
+  FROM entities e
+  LEFT JOIN revenues r USING (entity)
+),
+totals AS (
+  SELECT SUM(revenue) AS total_revenue FROM joined
+)
+SELECT
+  entity AS {entity_col_norm},
+  ROUND(revenue, 2) AS revenue,
+  ROUND(revenue / NULLIF(t.total_revenue, 0) * 100, 2) AS pct_share
+FROM joined
+CROSS JOIN totals t
+ORDER BY revenue DESC, {entity_col_norm} ASC
+{limit_clause}
+"""
+                else:
+                    sql = f"""
+WITH params AS (
+  SELECT DATE '{start_date_str}'::DATE AS start_date,
+         DATE '{end_date_str}'::DATE AS end_date
+),
+entities AS (
+  SELECT DISTINCT {entity_col_norm} AS entity
+  FROM sales_norm
+)
+SELECT
+  e.entity AS {entity_col_norm},
+  ROUND(COALESCE(r.revenue, 0), 2) AS revenue
+FROM entities e
+LEFT JOIN (
+  SELECT {entity_col_norm} AS entity,
+         SUM(value) AS revenue
+  FROM sales_norm, params
+  WHERE visit_date >= params.start_date
+    AND visit_date < params.end_date
+  GROUP BY {entity_col_norm}
+) r USING (entity)
+ORDER BY revenue DESC, {entity_col_norm} ASC
+{limit_clause}
+"""
+                result = con.execute(sql).fetchdf()
             
-            # Use deterministic SQL helper for ranking queries
-            # Extract year and month from start_date_str for cleaner SQL
-            start_date_obj = pd.to_datetime(start_date_str)
-            year = start_date_obj.year
-            month = start_date_obj.month
-            
-            # Determine if share is requested
-            requirements = plan.get('_requirements', {})
-            outputs = requirements.get('outputs', {}) if isinstance(requirements, dict) else {}
-            include_share = bool(outputs.get('share'))
-            if plan.get('intent') == 'share':
-                include_share = True
-            
-            # Generate SQL using deterministic pattern
-            sql = self._sql_top_n_group_for_month(
-                entity_col_norm, year, month, top_n, include_share
-            )
-            
-            # Execute query
-            result = con.execute(sql).fetchdf()
-            
-            # Calculate actual month total by querying the month_total CTE separately
-            # This ensures we get the full month total, not just the sum of returned rows
-            month_total_query = f"""
-            SELECT SUM(value) AS total
-            FROM sales_norm
-            WHERE visit_date >= DATE '{year:04d}-{month:02d}-01'
-              AND visit_date < (DATE '{year:04d}-{month:02d}-01' + INTERVAL 1 MONTH)
-            """
-            month_total_result = con.execute(month_total_query).fetchdf()
-            if not month_total_result.empty and 'total' in month_total_result.columns:
-                month_total = float(month_total_result['total'].iloc[0])
-                # Store month_total as metadata attribute (will be passed via observability)
-                result.attrs['month_total'] = month_total
-            
-            # Handle division by zero (if total is 0) - NULLIF already handles this, but ensure no NaN
-            if len(result) > 0 and 'pct_share' in result.columns:
+            if include_share and 'pct_share' in result.columns:
                 result['pct_share'] = result['pct_share'].fillna(0.0)
-            
             if entity_col_norm in result.columns:
                 result[entity_col_norm] = result[entity_col_norm].apply(
                     EntityNormalizationService.normalize_entity_name
                 )
-            
             return result
         finally:
             con.close()
